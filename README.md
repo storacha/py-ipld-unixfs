@@ -46,5 +46,6 @@ Dual-licensed under [Apache-2.0 OR MIT](LICENSE.md)
 
 
 [ipfs-unixfs-importer]: https://www.npmjs.com/package/ipfs-unixfs-importer
+[car]: https://ipld.io/specs/transport/car/carv1/
 [unixfs spec]: https://github.com/ipfs/specs/blob/master/UNIXFS.md
 [multiformats]: https://github.com/multiformats/js-multiformats
