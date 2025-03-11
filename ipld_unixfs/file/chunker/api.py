@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from typing import Generic, Literal, Optional, TypeVar, Union
 
 
@@ -9,7 +10,8 @@ class Chunk:
     byte_length: int
     byte_offset: int
 
-    def copy_to(target: memoryview, offset: int) -> memoryview:
+    @abstractmethod
+    def copy_to(self, target: memoryview, offset: int) -> memoryview:
         pass
 
 
@@ -44,6 +46,7 @@ class ChunkerBase(Generic[T]):
     provide utility function to initalize a context.
     """
 
+    @abstractmethod
     def cut(self, context: T, buffer: Chunk, end: bool = False) -> list[int]:
         """
         Chunker takes a `context: T` object, `buffer` containing bytes to be
