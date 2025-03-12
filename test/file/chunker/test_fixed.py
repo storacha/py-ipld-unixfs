@@ -7,7 +7,7 @@ class _TestChunk(Chunk):
 
     def __init__(self, buf: bytes) -> None:
         self.buffer = buf
-        self.length = self.byte_length = len(buf)
+        self.byte_length = len(buf)
         self.byte_offset = 0
 
     def copy_to(self, target: memoryview, offset: int) -> memoryview:
