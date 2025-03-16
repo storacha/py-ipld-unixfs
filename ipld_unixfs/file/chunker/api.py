@@ -1,18 +1,15 @@
 from abc import abstractmethod
-from typing import Generic, Literal, Optional, TypeVar, Union
+from typing import Generic, Literal, Optional, Protocol, TypeVar, Union
 
 
 T = TypeVar("T")
 
 
-class Chunk:
-    length: int
+class Chunk(Protocol):
     byte_length: int
     byte_offset: int
 
-    @abstractmethod
-    def copy_to(self, target: memoryview, offset: int) -> memoryview:
-        pass
+    def copy_to(self, target: memoryview, offset: int) -> memoryview: ...
 
 
 class ChunkerBase(Generic[T]):
