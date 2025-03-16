@@ -55,7 +55,7 @@ class BufferView:
             return get(self, index)
         raise TypeError("unsupported buffer slice arguments")
 
-    def __iter__(self) -> Generator[int]:
+    def __iter__(self) -> Generator[int, None, None]:
         for segment in self.segments:
             yield from segment
 
