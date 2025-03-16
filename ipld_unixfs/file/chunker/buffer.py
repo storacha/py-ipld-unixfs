@@ -1,4 +1,5 @@
-from typing import Any, Generator, Protocol, Self, Union, overload
+from typing import Any, Generator, Protocol, overload
+from typing_extensions import Self
 
 
 class BufferSlice(Protocol):
