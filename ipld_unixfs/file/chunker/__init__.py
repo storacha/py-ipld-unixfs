@@ -41,8 +41,8 @@ def split(chunker: Chunker[T], buffer: BufferView, end: bool) -> State[T]:
         # We may be splitting empty buffer in which case there will be no chunks
         # in it so we make sure that we do not emit empty buffer.
         if size > 0:
-            chunk = buffer.slice(offset, offset + size)
+            chunk = buffer[offset : offset + size]
             chunks.append(chunk)
             offset += size
 
-    return State(chunker, buffer.slice(offset), chunks)
+    return State(chunker, buffer[offset:], chunks)

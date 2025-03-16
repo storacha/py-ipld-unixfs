@@ -1,3 +1,4 @@
+import pytest
 from ipld_unixfs.file.chunker import Chunk
 from ipld_unixfs.file.chunker.fixed import FixedSizeChunker, FixedSizeContext
 
