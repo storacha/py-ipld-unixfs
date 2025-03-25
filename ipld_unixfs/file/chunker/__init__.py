@@ -1,4 +1,4 @@
-from typing import Generic, TypeVar
+from typing import Generic, Sequence, TypeVar
 from .api import Chunk, Chunker, ChunkerBase, StatefulChunker, StatelessChunker
 from .buffer import BufferView
 
@@ -8,10 +8,10 @@ T = TypeVar("T")
 class State(Generic[T]):
     chunker: Chunker[T]
     buffer: BufferView
-    chunks: list[Chunk]
+    chunks: Sequence[Chunk]
 
     def __init__(
-        self, chunker: Chunker[T], buffer: BufferView, chunks: list[Chunk]
+        self, chunker: Chunker[T], buffer: BufferView, chunks: Sequence[Chunk]
     ) -> None:
         self.buffer = buffer
         self.chunker = chunker
@@ -34,7 +34,7 @@ def close(state: State[T]) -> State[T]:
 
 
 def split(chunker: Chunker[T], buffer: BufferView, end: bool) -> State[T]:
-    chunks: list[Chunk] = []
+    chunks: Sequence[Chunk] = []
 
     offset = 0
     for size in chunker.cut(chunker.context, buffer, end):
