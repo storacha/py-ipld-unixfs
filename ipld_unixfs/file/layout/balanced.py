@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence
 from ipld_unixfs.file.chunker.api import Chunk
-from ipld_unixfs.file.layout.api import LayoutEngine
+from ipld_unixfs.file.layout.api import Branch, LayoutEngine, Leaf, WriteResult
 from ipld_unixfs.unixfs import Metadata
+
+EMPTY = ()
 
 
 class Balanced:
@@ -29,8 +31,8 @@ class Balanced:
     ```
     {
       width: 3
-      leafIndex: [leaf1, leaf2, leaf3]
-      nodeIndex: []
+      leaf_index: [leaf1, leaf2, leaf3]
+      node_index: []
       nodes: []
     }
     ```
@@ -43,9 +45,9 @@ class Balanced:
     ```
     {
       width: 3
-      leafIndex: []
-      nodeIndex: [[0]]
-      nodes: [new RootNode([leaf1, leaf2, leaf3])]
+      leaf_index: []
+      node_index: [[0]]
+      nodes: [RootNode([leaf1, leaf2, leaf3])]
     }
     ```
 
@@ -74,19 +76,19 @@ class Balanced:
     ```
     {
       width: 3
-      leafIndex: [leaf10]
-      nodeIndex: [
+      leaf_index: [leaf10]
+      node_index: [
         [0, 1, 2], // [r1, r2, r3]
         [3]        // [r4]
       ]
       nodes: [
-        new Node([leaf1, leaf2, leaf3]), // r1
-        new Node([leaf4, leaf5, leaf6]), // r2
-        new Node([leaf7, leaf8, leaf9]), // r3
-        new Node([ // r4
-            new Node([leaf1, leaf2, leaf3]), // r1
-            new Node([leaf4, leaf5, leaf6]), // r2
-            new Node([leaf7, leaf8, leaf9]), // r3
+        Node([leaf1, leaf2, leaf3]), // r1
+        Node([leaf4, leaf5, leaf6]), // r2
+        Node([leaf7, leaf8, leaf9]), // r3
+        Node([ // r4
+            Node([leaf1, leaf2, leaf3]), // r1
+            Node([leaf4, leaf5, leaf6]), // r2
+            Node([leaf7, leaf8, leaf9]), // r3
         ])
       ]
     }
@@ -95,16 +97,23 @@ class Balanced:
 
     width: int
     head: Optional[Chunk]
-    leaf_index: list[int]
-    node_index: list[list[int]]
+    leaf_index: Sequence[int]
+    node_index: Sequence[Sequence[int]]
     last_id: int
 
-    def __init__(self, width: int):
+    def __init__(
+        self,
+        width: int,
+        head: Optional[Chunk] = None,
+        leaf_index: Sequence[int] = [],
+        node_index: Sequence[Sequence[int]] = [],
+        last_id: int = 0,
+    ):
         self.width = width
-        self.head = None
-        self.leaf_index = []
-        self.node_index = []
-        self.last_id = 0
+        self.head = head
+        self.leaf_index = leaf_index
+        self.node_index = node_index
+        self.last_id = last_id
 
 
 class BalancedLayout(LayoutEngine[Balanced]):
@@ -128,7 +137,9 @@ class Node:
     children: Sequence[int]
     metadata: Optional[Metadata]
 
-    def __init__(self, id: int, children: Sequence[int], metadata: Optional[Metadata]):
+    def __init__(
+        self, id: int, children: Sequence[int], metadata: Optional[Metadata] = None
+    ):
         self.id = id
         self.children = children
         self.metadata = metadata
@@ -150,96 +161,115 @@ def open(width: int = defaults.width) -> Balanced:
     return Balanced(width)
 
 
-# /**
-#  *
-#  * @param {Balanced} layout
-#  * @param {Chunker.Chunk[]} chunks
-#  * @returns {Layout.WriteResult<Balanced>}
-#  */
-# export const write = (layout, chunks) => {
-#   if (chunks.length === 0) {
-#     return { layout, nodes: EMPTY, leaves: EMPTY }
-#   } else {
-#     let { lastID } = layout
-#     // We need to hold on to the first chunk until we either get a second chunk
-#     // (at which point we know our layout will have branches) or until we close
-#     // (at which point our layout will be single leaf or node depneding on
-#     // metadata)
-#     const [head, slices] = layout.head
-#       ? // If we had a head we have more then two chunks (we already checked
-#         // chunks weren't empty) so we process head along with other chunks.
-#         [null, (chunks.unshift(layout.head), chunks)]
-#       : // If we have no head no leaves and got only one chunk we have to save it
-#       // until we can decide what to do with it.
-#       chunks.length === 1 && layout.leafIndex.length === 0
-#       ? [chunks[0], EMPTY]
-#       : // Otherwise we have no head but got enough chunks to know we'll have a
-#         // node.
-#         [null, chunks]
+def write(layout: Balanced, chunks: Sequence[Chunk]) -> WriteResult[Balanced]:
+    if len(chunks) == 0:
+        return WriteResult(layout, EMPTY, EMPTY)
 
-#     if (slices.length === 0) {
-#       return { layout: { ...layout, head }, nodes: EMPTY, leaves: EMPTY }
-#     } else {
-#       const leafIndex = [...layout.leafIndex]
-#       const leaves = []
-#       for (const chunk of slices) {
-#         const leaf = { id: ++lastID, content: chunk }
-#         leaves.push(leaf)
-#         leafIndex.push(leaf.id)
-#       }
+    last_id = layout.last_id
 
-#       if (leafIndex.length > layout.width) {
-#         return flush({ ...layout, leafIndex, head, lastID }, leaves)
-#       } else {
-#         return {
-#           layout: { ...layout, head, leafIndex, lastID },
-#           leaves,
-#           nodes: EMPTY,
-#         }
-#       }
-#     }
-#   }
-# }
+    # We need to hold on to the first chunk until we either get a second chunk
+    # (at which point we know our layout will have branches) or until we close
+    # (at which point our layout will be single leaf or node depneding on
+    # metadata)
+    head: Optional[Chunk] = None
+    slices: list[Chunk] = []
 
-# /**
-#  * @param {Balanced} state
-#  * @param {Layout.Leaf[]} leaves
-#  * @param {Layout.Branch[]} [nodes]
-#  * @param {boolean} [close]
-#  * @returns {Layout.WriteResult<Balanced>}
-#  */
-# export const flush = (state, leaves = EMPTY, nodes = [], close = false) => {
-#   let { lastID } = state
-#   const nodeIndex = state.nodeIndex.map(row => [...row])
-#   const leafIndex = [...state.leafIndex]
-#   const { width } = state
+    if layout.head is not None:
+        # If we had a head we have more then two chunks (we already checked
+        # chunks weren't empty) so we process head along with other chunks.
+        slices.append(layout.head)
+        slices.extend(chunks)
+    elif len(chunks) == 1 and len(layout.leaf_index) == 0:
+        # If we have no head no leaves and got only one chunk we have to save it
+        # until we can decide what to do with it.
+        head = chunks[0]
+    else:
+        # Otherwise we have no head but got enough chunks to know we'll have a
+        # node.
+        slices.extend(chunks)
 
-#   // Move leaves into nodes
-#   while (leafIndex.length > width || (leafIndex.length > 0 && close)) {
-#     grow(nodeIndex, 1)
-#     const node = new Node(++lastID, leafIndex.splice(0, width))
-#     nodeIndex[0].push(node.id)
-#     nodes.push(node)
-#   }
+    if len(slices) == 0:
+        return WriteResult(
+            Balanced(
+                layout.width,
+                layout.head,
+                layout.leaf_index,
+                layout.node_index,
+                layout.last_id,
+            ),
+            EMPTY,
+            EMPTY,
+        )
 
-#   let depth = 0
-#   while (depth < nodeIndex.length) {
-#     const row = nodeIndex[depth]
-#     depth++
+    leaf_index = []
+    leaf_index.extend(layout.leaf_index)
+    leaves = []
 
-#     while (
-#       row.length > width ||
-#       (row.length > 0 && close && depth < nodeIndex.length)
-#     ) {
-#       const node = new Node(++lastID, row.splice(0, width))
-#       grow(nodeIndex, depth + 1)
-#       nodeIndex[depth].push(node.id)
-#       nodes.push(node)
-#     }
-#   }
+    for chunk in slices:
+        leaf = Leaf(last_id, chunk)
+        last_id += 1
+        leaves.append(leaf)
+        leaf_index.append(leaf.id)
 
-#   return { layout: { ...state, lastID, leafIndex, nodeIndex }, leaves, nodes }
-# }
+    if len(leaf_index) > layout.width:
+        return flush(
+            Balanced(layout.width, head, leaf_index, layout.node_index, last_id),
+            leaves,
+        )
+
+    return WriteResult(
+        Balanced(layout.width, head, leaf_index, layout.node_index, last_id),
+        EMPTY,
+        leaves,
+    )
+
+
+def _grow(index: list[list[int]], length: int):
+    while len(index) < length:
+        index.append([])
+
+
+def flush(
+    state: Balanced,
+    leaves: Sequence[Leaf] = [],
+    nodes: Sequence[Branch] = [],
+    close: bool = False,
+) -> WriteResult[Balanced]:
+    last_id = state.last_id
+    node_index: list[list[int]] = []
+    for row in state.node_index:
+        node_index.append(list(row))
+    leaf_index = list(state.leaf_index)
+    width = state.width
+    nodes = list(nodes)
+
+    # Move leaves into nodes
+    while len(leaf_index) > width or (len(leaf_index) > 0 and close):
+        _grow(node_index, 1)
+        node = Node(last_id, leaf_index[0:width])
+        last_id += 1
+        leaf_index = leaf_index[width:]
+        node_index[0].append(node.id)
+        nodes.append(node)
+
+    depth = 0
+    while depth < len(node_index):
+        row = node_index[depth]
+        depth += 1
+
+        while len(row) > width or (len(row) > 0 and depth < len(node_index)):
+            node = Node(last_id, row[0:width])
+            last_id += 1
+            row = row[width:]
+            _grow(node_index, depth + 1)
+            nodes.append(node)
+
+    return WriteResult(
+        Balanced(state.width, state.head, leaf_index, node_index, last_id),
+        nodes,
+        leaves,
+    )
+
 
 # /**
 #  * @param {Balanced} layout
@@ -280,18 +310,3 @@ def open(width: int = defaults.width) -> Balanced:
 #     }
 #   }
 # }
-
-# /**
-#  * @template T
-#  * @param {T[][]} index
-#  * @param {number} length
-#  */
-# const grow = (index, length) => {
-#   while (index.length < length) {
-#     index.push([])
-#   }
-#   return index
-# }
-
-# /** @type {never[]} */
-# const EMPTY = []
