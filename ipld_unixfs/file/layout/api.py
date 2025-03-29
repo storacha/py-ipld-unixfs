@@ -6,9 +6,10 @@ from ipld_unixfs.unixfs import Metadata, File
 
 Layout = TypeVar("Layout")
 
-NodeID = Union[str, int]
+NodeID = int
 
 
+@dataclass
 class Branch:
     id: NodeID
     children: Sequence[NodeID]
@@ -19,6 +20,7 @@ class Branch:
 class Leaf:
     id: NodeID
     content: Optional[Chunk]
+    metadata: Optional[Metadata]
 
 
 Node = Union[Leaf, Branch]
@@ -31,6 +33,7 @@ class WriteResult(Generic[Layout]):
     leaves: Sequence[Leaf]
 
 
+@dataclass
 class CloseResult:
     root: Node
     nodes: Sequence[Branch]
@@ -46,11 +49,11 @@ FileChunkEncoder = Union[BlockEncoder[PB, bytes], BlockEncoder[RAW, bytes]]
 class FileEncoder(Protocol):
     code: PB
 
-    def encode(file: File) -> bytes: ...
+    def encode(self, file: File) -> bytes: ...
 
 
 class LayoutEngine(Protocol, Generic[Layout]):
-    def open() -> Layout:
+    def open(self) -> Layout:
         """
         When new file is imported importer will call file builders `open`
         function. Here layout implementation can initialize implementation
@@ -61,7 +64,7 @@ class LayoutEngine(Protocol, Generic[Layout]):
         """
         ...
 
-    def write(layout: Layout, chunks: Sequence[Chunk]) -> WriteResult[Layout]:
+    def write(self, layout: Layout, chunks: Sequence[Chunk]) -> WriteResult[Layout]:
         """
         Importer takes care reading file content chunking it. Afet it produces
         some chunks it will pass those via `write` call along with current
@@ -75,7 +78,7 @@ class LayoutEngine(Protocol, Generic[Layout]):
         """
         ...
 
-    def close(layout: Layout, metadata: Metadata = None) -> CloseResult:
+    def close(self, layout: Layout, metadata: Optional[Metadata] = None) -> CloseResult:
         """
         After importer wrote all the chunks through `write` calls it will call
         `close` so that layout engine can produce all the remaining nodes along

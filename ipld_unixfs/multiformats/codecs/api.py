@@ -1,4 +1,5 @@
 # TODO: PR to multiformats?
+from abc import abstractmethod
 from typing import Generic, TypeVar
 
 
@@ -16,5 +17,6 @@ class BlockEncoder(Generic[Code, Data]):
     name: str
     code: Code
 
+    @abstractmethod
     def encode(data: Data) -> bytes:
         pass

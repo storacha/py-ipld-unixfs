@@ -62,7 +62,7 @@ class SimpleFile:
     """
 
     metadata: Optional[Metadata]
-    type: NodeType.File
+    type: Literal[NodeType.File]
     layout: Literal["simple"]
     content: bytes
 
@@ -95,7 +95,7 @@ class FileChunk:
     """
 
     metadata: Optional[Metadata]
-    type: NodeType.File
+    type: Literal[NodeType.File]
     layout: Literal["simple"]
     content: bytes
 
@@ -139,7 +139,7 @@ class FileShard:
     encountered in any other position (that is ignore `mode`, `mtime` fileds).
     """
 
-    type: NodeType.File
+    type: Literal[NodeType.File]
     layout: Literal["advanced"]
     parts: Sequence[FileLink]
 
@@ -153,7 +153,7 @@ class AdvancedFile:
     """
 
     metadata: Optional[Metadata]
-    type: NodeType.File
+    type: Literal[NodeType.File]
     layout: Literal["advanced"]
     parts: Sequence[FileLink]
 

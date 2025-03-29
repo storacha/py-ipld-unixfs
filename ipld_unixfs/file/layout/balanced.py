@@ -1,7 +1,13 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence
 from ipld_unixfs.file.chunker.api import Chunk
-from ipld_unixfs.file.layout.api import Branch, LayoutEngine, Leaf, WriteResult
+from ipld_unixfs.file.layout.api import (
+    Branch,
+    CloseResult,
+    LayoutEngine,
+    Leaf,
+    WriteResult,
+)
 from ipld_unixfs.unixfs import Metadata
 
 EMPTY = ()
@@ -125,24 +131,13 @@ class BalancedLayout(LayoutEngine[Balanced]):
     def open(self) -> Balanced:
         return open(self.width)
 
-    def write(self, layout: Balanced, chunks: Sequence[Chunk]):
+    def write(self, layout: Balanced, chunks: Sequence[Chunk]) -> WriteResult[Balanced]:
         return write(layout, chunks)
 
-    def close(self, layout: Balanced, metadata: Metadata):
+    def close(
+        self, layout: Balanced, metadata: Optional[Metadata] = None
+    ) -> CloseResult:
         return close(layout, metadata)
-
-
-class Node:
-    id: int
-    children: Sequence[int]
-    metadata: Optional[Metadata]
-
-    def __init__(
-        self, id: int, children: Sequence[int], metadata: Optional[Metadata] = None
-    ):
-        self.id = id
-        self.children = children
-        self.metadata = metadata
 
 
 def with_width(width: int) -> LayoutEngine[Balanced]:
@@ -192,7 +187,7 @@ def write(layout: Balanced, chunks: Sequence[Chunk]) -> WriteResult[Balanced]:
         return WriteResult(
             Balanced(
                 layout.width,
-                layout.head,
+                head,
                 layout.leaf_index,
                 layout.node_index,
                 layout.last_id,
@@ -201,13 +196,13 @@ def write(layout: Balanced, chunks: Sequence[Chunk]) -> WriteResult[Balanced]:
             EMPTY,
         )
 
-    leaf_index = []
+    leaf_index: list[int] = []
     leaf_index.extend(layout.leaf_index)
     leaves = []
 
     for chunk in slices:
-        leaf = Leaf(last_id, chunk)
         last_id += 1
+        leaf = Leaf(last_id, chunk, None)
         leaves.append(leaf)
         leaf_index.append(leaf.id)
 
@@ -224,7 +219,7 @@ def write(layout: Balanced, chunks: Sequence[Chunk]) -> WriteResult[Balanced]:
     )
 
 
-def _grow(index: list[list[int]], length: int):
+def _grow(index: list[list[int]], length: int) -> None:
     while len(index) < length:
         index.append([])
 
@@ -246,8 +241,8 @@ def flush(
     # Move leaves into nodes
     while len(leaf_index) > width or (len(leaf_index) > 0 and close):
         _grow(node_index, 1)
-        node = Node(last_id, leaf_index[0:width])
         last_id += 1
+        node = Branch(last_id, leaf_index[0:width], None)
         leaf_index = leaf_index[width:]
         node_index[0].append(node.id)
         nodes.append(node)
@@ -258,8 +253,8 @@ def flush(
         depth += 1
 
         while len(row) > width or (len(row) > 0 and depth < len(node_index)):
-            node = Node(last_id, row[0:width])
             last_id += 1
+            node = Branch(last_id, row[0:width], None)
             row = row[width:]
             _grow(node_index, depth + 1)
             nodes.append(node)
@@ -271,42 +266,26 @@ def flush(
     )
 
 
-# /**
-#  * @param {Balanced} layout
-#  * @param {Layout.Metadata} [metadata]
-#  * @returns {Layout.CloseResult}
-#  */
-# export const close = (layout, metadata) => {
-#   const state = layout
-#   if (layout.head) {
-#     return {
-#       root: { id: 1, content: layout.head, metadata },
-#       leaves: EMPTY,
-#       nodes: EMPTY,
-#     }
-#   } else if (layout.leafIndex.length === 0) {
-#     return {
-#       root: { id: 1, metadata },
-#       leaves: EMPTY,
-#       nodes: EMPTY,
-#     }
-#   } else {
-#     // Flush with width 1 so all the items will be propagate up the tree
-#     // and height of `depth-1` so we propagate nodes all but from the top
-#     // most level
-#     const { nodes, layout } = flush(state, EMPTY, [], true)
+def close(layout: Balanced, metadata: Optional[Metadata] = None) -> CloseResult:
+    if layout.head is not None:
+        return CloseResult(Leaf(1, layout.head, metadata), EMPTY, EMPTY)
 
-#     const { nodeIndex } = layout
-#     const height = nodeIndex.length - 1
+    if len(layout.leaf_index) == 0:
+        return CloseResult(Leaf(1, None, metadata), EMPTY, EMPTY)
 
-#     const top = nodeIndex[height]
-#     if (top.length === 1) {
-#       const root = nodes[nodes.length - 1]
-#       nodes.length = nodes.length - 1
-#       return { root, nodes, leaves: EMPTY }
-#     } else {
-#       const root = new Node(layout.lastID + 1, top, metadata)
-#       return { root, nodes, leaves: EMPTY }
-#     }
-#   }
-# }
+    # Flush with width 1 so all the items will be propagate up the tree
+    # and height of `depth-1` so we propagate nodes all but from the top
+    # most level.
+    result = flush(layout, EMPTY, EMPTY, True)
+    nodes = result.nodes
+    node_index = result.layout.node_index
+    height = len(node_index) - 1
+    top = node_index[height]
+
+    if len(top) == 1:
+        root = nodes[len(nodes) - 1]
+        nodes = nodes[0:-1]
+        return CloseResult(root, nodes, EMPTY)
+
+    root = Branch(result.layout.last_id + 1, top, metadata)
+    return CloseResult(root, nodes, EMPTY)

@@ -34,7 +34,7 @@ def close(state: State[T]) -> State[T]:
 
 
 def split(chunker: Chunker[T], buffer: BufferView, end: bool) -> State[T]:
-    chunks: Sequence[Chunk] = []
+    chunks: list[Chunk] = []
 
     offset = 0
     for size in chunker.cut(chunker.context, buffer, end):
