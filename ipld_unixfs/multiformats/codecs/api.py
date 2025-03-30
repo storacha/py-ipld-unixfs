@@ -18,5 +18,5 @@ class BlockEncoder(Generic[Code, Data]):
     code: Code
 
     @abstractmethod
-    def encode(data: Data) -> bytes:
+    def encode(self, data: Data) -> bytes:
         pass
