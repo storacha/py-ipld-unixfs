@@ -42,6 +42,14 @@ class BufferView:
         self.byte_length = byte_length
         return self
 
+    def __eq__(self, other: Any) -> bool:
+        if self is other:
+            return True
+        for i in range(len(self)):
+            if self[i] != other[i]:
+                return False
+        return True
+
     @overload
     def __getitem__(self, index: int) -> int: ...
     @overload
@@ -58,6 +66,9 @@ class BufferView:
     def __iter__(self) -> Generator[int, None, None]:
         for segment in self.segments:
             yield from segment
+
+    def __len__(self) -> int:
+        return total_byte_length(self.segments)
 
     def copy_to(self, target: memoryview, offset: int = 0) -> memoryview:
         """

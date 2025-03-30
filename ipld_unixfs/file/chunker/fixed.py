@@ -1,5 +1,5 @@
 from math import floor
-from .api import Chunk, StatelessChunker
+from ipld_unixfs.file.chunker.api import Chunk, StatelessChunker
 
 default_max_chunk_size = 262144
 
