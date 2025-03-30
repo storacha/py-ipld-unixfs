@@ -25,7 +25,7 @@ def test_single_leaf_does_not_produce_root() -> None:
 
 
 def test_two_leaves_produce_a_root() -> None:
-    file = [0, 1, 2, 3, 4, 5, 6, 7]
+    file = range(8)
     layout = Balanced.open()
     result = Balanced.write(
         layout,
@@ -44,3 +44,73 @@ def test_two_leaves_produce_a_root() -> None:
     assert result.root == Branch(3, [1, 2], None)
     assert list(result.nodes) == []
     assert list(result.leaves) == []
+
+
+def test_overflows_into_second_node() -> None:
+    file = range(28)
+    layout = Balanced.open(width=3)
+    result = Balanced.write(
+        layout,
+        [
+            BufferView.create([file[0:4]]),
+            BufferView.create([file[4:8]]),
+        ],
+    )
+    assert list(result.nodes) == []
+    assert result.leaves == [
+        Leaf(1, BufferView.create([file[0:4]]), None),
+        Leaf(2, BufferView.create([file[4:8]]), None),
+    ]
+
+    result = Balanced.write(
+        result.layout,
+        [
+            BufferView.create([file[8:16]]),
+            BufferView.create([file[16:28]]),
+        ],
+    )
+    assert result.leaves == [
+        Leaf(3, BufferView.create([file[8:16]]), None),
+        Leaf(4, BufferView.create([file[16:28]]), None),
+    ]
+    assert result.nodes == [Branch(5, [1, 2, 3], None)]
+
+    result = Balanced.close(result.layout)
+    assert list(result.leaves) == []
+    assert result.nodes == [Branch(6, [4], None)]
+    assert result.root == Branch(7, [5, 6], None)
+
+
+def test_overflows_into_second_node_at_width_boundary() -> None:
+    file = range(28)
+    layout = Balanced.open(width=3)
+    result = Balanced.write(
+        layout,
+        [
+            BufferView.create([file[0:4]]),
+            BufferView.create([file[4:8]]),
+            BufferView.create([file[8:16]]),
+        ],
+    )
+    assert list(result.nodes) == []
+    assert result.leaves == [
+        Leaf(1, BufferView.create([file[0:4]]), None),
+        Leaf(2, BufferView.create([file[4:8]]), None),
+        Leaf(3, BufferView.create([file[8:16]]), None),
+    ]
+
+    result = Balanced.write(
+        result.layout,
+        [
+            BufferView.create([file[16:28]]),
+        ],
+    )
+    assert result.leaves == [
+        Leaf(4, BufferView.create([file[16:28]]), None),
+    ]
+    assert result.nodes == [Branch(5, [1, 2, 3], None)]
+
+    result = Balanced.close(result.layout)
+    assert list(result.leaves) == []
+    assert result.nodes == [Branch(6, [4], None)]
+    assert result.root == Branch(7, [5, 6], None)
