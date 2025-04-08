@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Generic, Literal, Optional, Protocol, Sequence, TypeVar, Union
 from ipld_unixfs.multiformats.codecs.api import BlockEncoder
 from ipld_unixfs.file.chunker.api import Chunk
-from ipld_unixfs.unixfs import Metadata, File
+from ipld_unixfs.unixfs import Metadata, File, FileLink
 
 Layout = TypeVar("Layout")
 
