@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence, Union
+from typing import Mapping, MutableMapping, MutableSequence, Optional, Sequence, Union
 from ipld_unixfs.file.layout.api import NodeID
-from ipld_unixfs.unixfs import FileLink
+from ipld_unixfs.unixfs import FileLink as FileLink
+
 
 PropertyKey = Union[str, int]
 
@@ -21,25 +22,25 @@ class PendingChildren:
 class Queue:
     mutable: bool
 
-    needs: dict[NodeID, NodeID]
+    needs: MutableMapping[NodeID, NodeID]
     """Maps link IDs to the node IDs that need them."""
 
-    nodes: dict[NodeID, PendingChildren]
+    nodes: MutableMapping[NodeID, PendingChildren]
     """Maps node IDs to the Nodes & a number of links it awaits on."""
 
-    links: dict[NodeID, FileLink]
+    links: MutableMapping[NodeID, FileLink]
     """Available links."""
 
-    linked: Optional[list[LinkedNode]]
+    linked: Optional[MutableSequence[LinkedNode]]
     """List of file nodes that are ready."""
 
     def __init__(
         self,
         mutable: bool,
-        needs: dict[NodeID, NodeID],
-        nodes: dict[NodeID, PendingChildren],
-        links: dict[NodeID, FileLink],
-        linked: Optional[list[LinkedNode]] = None,
+        needs: MutableMapping[NodeID, NodeID],
+        nodes: MutableMapping[NodeID, PendingChildren],
+        links: MutableMapping[NodeID, FileLink],
+        linked: Optional[MutableSequence[LinkedNode]] = None,
     ):
         self.mutable = mutable
         self.needs = needs
@@ -49,22 +50,34 @@ class Queue:
 
 
 class Delta:
-    needs: Optional[dict[NodeID, Optional[NodeID]]]
-    nodes: Optional[dict[NodeID, Optional[PendingChildren]]]
-    links: Optional[dict[NodeID, Optional[FileLink]]]
-    linked: Optional[list[LinkedNode]]
+    needs: Optional[Mapping[NodeID, Optional[NodeID]]]
+    nodes: Optional[Mapping[NodeID, Optional[PendingChildren]]]
+    links: Optional[Mapping[NodeID, Optional[FileLink]]]
+    linked: Optional[Sequence[LinkedNode]]
+
+    def __init__(
+        self,
+        needs: Optional[Mapping[NodeID, Optional[NodeID]]] = None,
+        nodes: Optional[Mapping[NodeID, Optional[PendingChildren]]] = None,
+        links: Optional[Mapping[NodeID, Optional[FileLink]]] = None,
+        linked: Optional[Sequence[LinkedNode]] = None,
+    ):
+        self.needs = needs
+        self.nodes = nodes
+        self.links = links
+        self.linked = linked
 
 
 class Result(Queue):
-    linked: Sequence[LinkedNode]
+    linked: MutableSequence[LinkedNode]
     """List of file nodes that are ready."""
 
     def __init__(
         self,
         mutable: bool,
-        needs: dict[NodeID, NodeID],
-        nodes: dict[NodeID, PendingChildren],
-        links: dict[NodeID, FileLink],
-        linked: list[LinkedNode],
+        needs: MutableMapping[NodeID, NodeID],
+        nodes: MutableMapping[NodeID, PendingChildren],
+        links: MutableMapping[NodeID, FileLink],
+        linked: MutableSequence[LinkedNode],
     ):
         super().__init__(mutable, needs, nodes, links, linked)
