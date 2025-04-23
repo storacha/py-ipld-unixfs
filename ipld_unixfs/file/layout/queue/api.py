@@ -19,6 +19,7 @@ class PendingChildren:
     count: int
 
 
+@dataclass
 class Queue:
     mutable: bool
 
@@ -31,53 +32,19 @@ class Queue:
     links: MutableMapping[NodeID, FileLink]
     """Available links."""
 
-    linked: Optional[MutableSequence[LinkedNode]]
+    linked: Optional[MutableSequence[LinkedNode]] = None
     """List of file nodes that are ready."""
 
-    def __init__(
-        self,
-        mutable: bool,
-        needs: MutableMapping[NodeID, NodeID],
-        nodes: MutableMapping[NodeID, PendingChildren],
-        links: MutableMapping[NodeID, FileLink],
-        linked: Optional[MutableSequence[LinkedNode]] = None,
-    ):
-        self.mutable = mutable
-        self.needs = needs
-        self.nodes = nodes
-        self.links = links
-        self.linked = linked
 
-
+@dataclass
 class Delta:
-    needs: Optional[Mapping[NodeID, Optional[NodeID]]]
-    nodes: Optional[Mapping[NodeID, Optional[PendingChildren]]]
-    links: Optional[Mapping[NodeID, Optional[FileLink]]]
-    linked: Optional[Sequence[LinkedNode]]
-
-    def __init__(
-        self,
-        needs: Optional[Mapping[NodeID, Optional[NodeID]]] = None,
-        nodes: Optional[Mapping[NodeID, Optional[PendingChildren]]] = None,
-        links: Optional[Mapping[NodeID, Optional[FileLink]]] = None,
-        linked: Optional[Sequence[LinkedNode]] = None,
-    ):
-        self.needs = needs
-        self.nodes = nodes
-        self.links = links
-        self.linked = linked
+    needs: Optional[Mapping[NodeID, Optional[NodeID]]] = None
+    nodes: Optional[Mapping[NodeID, Optional[PendingChildren]]] = None
+    links: Optional[Mapping[NodeID, Optional[FileLink]]] = None
+    linked: Optional[Sequence[LinkedNode]] = None
 
 
+@dataclass
 class Result(Queue):
     linked: MutableSequence[LinkedNode]
     """List of file nodes that are ready."""
-
-    def __init__(
-        self,
-        mutable: bool,
-        needs: MutableMapping[NodeID, NodeID],
-        nodes: MutableMapping[NodeID, PendingChildren],
-        links: MutableMapping[NodeID, FileLink],
-        linked: MutableSequence[LinkedNode],
-    ):
-        super().__init__(mutable, needs, nodes, links, linked)

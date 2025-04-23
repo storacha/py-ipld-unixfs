@@ -1,18 +1,20 @@
 import pytest
 from ipld_unixfs.file.layout.api import Branch
 import ipld_unixfs.file.layout.queue as Queue
-from ipld_unixfs.file.layout.queue.api import LinkedNode
+from ipld_unixfs.file.layout.queue.api import LinkedNode, Result
 
 
 def test_empty_is_linked_right_away() -> None:
     v0 = Queue.empty()
     v1 = Queue.add_node(Branch(id=0, children=[], metadata=None), v0)
 
-    assert v1.mutable is False
-    assert v1.needs == {}
-    assert v1.links == {}
-    assert v1.nodes == {}
-    assert v1.linked == [LinkedNode(0, [])]
+    assert v1 == Result(
+        mutable=False,
+        needs={},
+        links={},
+        nodes={},
+        linked=[LinkedNode(0, [])],
+    )
 
 
 # describe("layout queue", () => {
