@@ -1,135 +1,87 @@
 import pytest
 from ipld_unixfs.file.layout.api import Branch
 import ipld_unixfs.file.layout.queue as Queue
-from ipld_unixfs.file.layout.queue.api import LinkedNode, Result
+from ipld_unixfs.file.layout.queue.api import PendingChildren, Result
+from test.file.layout.util import create_link, create_node
 
 
 def test_empty_is_linked_right_away() -> None:
     v0 = Queue.empty()
-    v1 = Queue.add_node(Branch(id=0, children=[], metadata=None), v0)
+    v1 = Queue.add_node(Branch(0, []), v0)
 
     assert v1 == Result(
         mutable=False,
         needs={},
         links={},
         nodes={},
-        linked=[LinkedNode(0, [])],
+        linked=[create_node(0, [])],
     )
 
 
+def test_has_only_one_link() -> None:
+    v0 = Queue.empty()
+    v1 = Queue.add_link(1, create_link("a"), v0)
+    v2 = Queue.add_node(Branch(0, [1]), v1)
+
+    assert v2 == Result(
+        mutable=False,
+        needs={},
+        links={},
+        nodes={},
+        linked=[create_node(0, [create_link("a")])],
+    )
+
+
+def test_has_several_links() -> None:
+    v0 = Queue.add_links(
+        [
+            (1, create_link("a")),
+            (2, create_link("b")),
+            (3, create_link("c")),
+        ],
+        Queue.empty(),
+    )
+
+    v1 = Queue.add_node(Branch(0, [1, 2, 3]), v0)
+
+    assert v1 == Result(
+        mutable=False,
+        needs={},
+        links={},
+        nodes={},
+        linked=[create_node(0, [create_link("a"), create_link("b"), create_link("c")])],
+    )
+
+
+def test_needs_first_child() -> None:
+    v0 = Queue.empty()
+    assert Queue.is_empty(v0) is True
+
+    v1 = Queue.add_node(Branch(0, [1]), v0)
+
+    assert Queue.is_empty(v1) is False
+    assert Queue.is_empty(v0) is True
+
+    assert v1 == Result(
+        mutable=False,
+        needs={1: 0},
+        links={},
+        nodes={0: PendingChildren([1], 1)},
+        linked=[],
+    ), "adds node to the queue"
+
+    v2 = Queue.add_link(1, create_link("foo"), v1)
+
+    assert v2 == Result(
+        mutable=False,
+        needs={},
+        links={},
+        nodes={},
+        linked=[create_node(0, [create_link("foo")])],
+    ), "moves node to the ready list"
+
+
 # describe("layout queue", () => {
-#   it("empty is linked right away", () => {
-#     const v0 = Queue.empty()
-#     const v1 = Queue.addNode(
-#       {
-#         id: 0,
-#         children: [],
-#       },
-#       v0
-#     )
-
-#     assert.deepEqual(v1, {
-#       mutable: false,
-#       needs: {},
-#       links: {},
-#       nodes: {},
-#       linked: [createNode(0, [])],
-#     })
-#   })
-
-#   it("has only one link", () => {
-#     const v0 = Queue.empty()
-#     const v1 = Queue.addLink(1, createLink("a"), v0)
-
-#     const v2 = Queue.addNode(
-#       {
-#         id: 0,
-#         children: [1],
-#       },
-#       v1
-#     )
-
-#     assert.deepEqual(v2, {
-#       mutable: false,
-#       needs: {},
-#       links: {},
-#       nodes: {},
-#       linked: [createNode(0, [createLink("a")])],
-#     })
-#   })
-
-#   it("has several links", () => {
-#     const v0 = Queue.addLinks(
-#       [
-#         [1, createLink("a")],
-#         [2, createLink("b")],
-#         [3, createLink("c")],
-#       ],
-#       Queue.empty()
-#     )
-
-#     const v1 = Queue.addNode(
-#       {
-#         id: 0,
-#         children: [1, 2, 3],
-#       },
-#       v0
-#     )
-
-#     assert.deepEqual(v1, {
-#       mutable: false,
-#       needs: {},
-#       links: {},
-#       nodes: {},
-#       linked: [
-#         createNode(0, [createLink("a"), createLink("b"), createLink("c")]),
-#       ],
-#     })
-#   })
-
-#   it("needs first child", () => {
-#     const v0 = Queue.empty()
-
-#     assert.equal(Queue.isEmpty(v0), true)
-
-#     const v1 = Queue.addNode(
-#       {
-#         id: 0,
-#         children: [1],
-#       },
-#       v0
-#     )
-
-#     assert.equal(Queue.isEmpty(v1), false)
-#     assert.equal(Queue.isEmpty(v0), true)
-
-#     assert.deepEqual(
-#       v1,
-#       {
-#         mutable: false,
-#         needs: { [1]: 0 },
-#         links: {},
-#         nodes: { [0]: { count: 1, children: [1] } },
-#         linked: [],
-#       },
-#       "adds node to the queue"
-#     )
-
-#     const v2 = Queue.addLink(1, createLink("foo"), v1)
-
-#     assert.deepEqual(
-#       v2,
-#       {
-#         mutable: false,
-#         needs: {},
-#         links: {},
-#         nodes: {},
-#         linked: [createNode(0, [createLink("foo")])],
-#       },
-#       "moves node to the ready list"
-#     )
-#   })
-
 #   it("queu then link", () => {
 #     const v0 = Queue.addLinks(
 #       [

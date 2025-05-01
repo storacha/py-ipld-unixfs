@@ -13,7 +13,7 @@ NodeID = int
 class Branch:
     id: NodeID
     children: Sequence[NodeID]
-    metadata: Optional[Metadata]
+    metadata: Optional[Metadata] = None
 
 
 @dataclass

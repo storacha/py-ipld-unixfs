@@ -170,7 +170,7 @@ def patch_dict(
     result = target if target is not original else dict(target)
     for id, value in delta.items():
         if value is None:
-            result.pop(id)
+            result.pop(id, None)
         else:
             result[id] = value
 

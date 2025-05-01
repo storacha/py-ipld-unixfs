@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, Optional, Protocol, Sequence, Union
 
@@ -100,6 +101,7 @@ class FileChunk:
     content: bytes
 
 
+@dataclass
 class DAGLink:
     cid: CID
     """*C*ontent *Id*entifier of the target DAG."""
@@ -111,6 +113,7 @@ class DAGLink:
     """
 
 
+@dataclass
 class ContentDAGLink(DAGLink):
     contentByteLength: int
     """Total number of bytes in the file."""
