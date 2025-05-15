@@ -162,3 +162,10 @@ class AdvancedFile:
 
 
 File = Union[SimpleFile, AdvancedFile]
+
+
+
+@dataclass
+class NamedDAGLink(DAGLink):
+    """A DAGLink that has a name, used for directory entries."""
+    name: str
