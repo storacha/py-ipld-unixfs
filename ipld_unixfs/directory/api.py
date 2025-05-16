@@ -29,8 +29,6 @@ from ..unixfs import (
 # )
 
 
-# NOTE: Generic type for Layout, if your directory writers are layout-aware
-# (HAMT itself is a layout, so this might be less relevant here than for files)
 Layout = TypeVar("Layout")
 
 

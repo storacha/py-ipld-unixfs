@@ -94,7 +94,7 @@ class PythonFlatDirectoryWriter(DirectoryView):
                 "Directory is closed and cannot be modified. "
                 "Use fork() to create a new writable version."
             )
-        return self.state.entries, self.state.metadata # Return parts that are modified
+        return self.state.entries, self.state.metadata
 
     def set(
         self, name: str, entry: EntryLink, options: Optional[DirectoryWriteOptions] = None
