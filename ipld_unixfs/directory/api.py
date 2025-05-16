@@ -10,14 +10,15 @@ from typing import (
     Union,
     Mapping,
 )
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from ipld_dag_pb import PBNode, encode, decode, code, PBLink
 
-# TODO: currently no support for DirectoryLink yet in 
+
 from ..unixfs import (
     Metadata,
     FileLink,
-    # DirectoryLink,
+    DirectoryLink,
+    DirectoryEntryLink as BaseDirectoryEntryLink,
 )
 
 # TODO: pending when the File API is ready
@@ -32,8 +33,17 @@ from ..unixfs import (
 # (HAMT itself is a layout, so this might be less relevant here than for files)
 Layout = TypeVar("Layout")
 
-# NOTE: Represents a link to either a file or another directory
+
 EntryLink = Union[FileLink, DirectoryLink]
+"""
+Represents a link to either a file or another directory
+"""
+
+
+DirectoryEntryLink = BaseDirectoryEntryLink
+"""
+What a directory *yields* or *contains* as an entry (includes the name)
+"""
 
 
 @dataclass
@@ -52,7 +62,14 @@ class DirectoryEntryData:
 
 @dataclass
 class DirectoryWriterState(Generic[Layout]):
-    """Internal state for a directory writer."""
+    """
+    Internal state for a directory writer.
+    attributes:
+        entries: Dict[str, EntryLink] - stores name to FileLink or DirectoryLink
+        metadata: Metadata
+        writer: BlockWriter
+        settings: BaseEncoderSettings[Layout]
+    """
     entries: Dict[str, EntryLink]
     metadata: Metadata
     writer: BlockWriter
@@ -60,22 +77,25 @@ class DirectoryWriterState(Generic[Layout]):
     closed: bool = False
 
 
-class DirectoryWriter(Protocol, Generic[Layout]):
+class DirectoryWriter(Protocol):
     """
     Protocol for a writable directory.
     Corresponds to `Writer<Layout>` in JS.
     """
 
     def set(
-        self, name: str, entry: EntryLink, options: Optional[DirectoryWriteOptions] = None
-    ) -> "DirectoryWriter[Layout]":
+        self, 
+        name: str, 
+        entry: EntryLink, 
+        options: Optional[DirectoryWriteOptions] = None
+    ) -> "DirectoryWriter":
         """
         Adds or updates an entry in the directory.
         Throws an error if the name conflicts and overwrite is not allowed.
         """
         pass
 
-    def remove(self, name: str) -> "DirectoryWriter[Layout]":
+    def remove(self, name: str) -> "DirectoryWriter":
         """Removes an entry from the directory."""
         pass
 
@@ -88,17 +108,17 @@ class DirectoryWriter(Protocol, Generic[Layout]):
 
     def fork(
         self, options: Optional[Dict] = None
-    ) -> "DirectoryView[Layout]":
+    ) -> "DirectoryView":
         """Creates a new writable directory view forked from the current state."""
         pass
 
 
-class DirectoryView(DirectoryWriter[Layout], Protocol, Generic[Layout]):
+class DirectoryView(DirectoryWriter, Protocol):
     """
     Protocol for a directory view, providing write methods and read access.
     Corresponds to `View<Layout>` in JS.
     """
-    state: DirectoryWriterState[Layout]
+    state: DirectoryWriterState
 
     @property
     def writer(self) -> BlockWriter: ...
@@ -114,6 +134,12 @@ class DirectoryView(DirectoryWriter[Layout], Protocol, Generic[Layout]):
         """Checks if an entry with the given name exists."""
         pass
 
+    def iter_entry_links(self) -> Iterable[BaseDirectoryEntryLink]:
+        """
+        Iterates over directory entries, yielding BaseDirectoryEntryLink objects
+        (which are NamedDAGLink, including name, CID, and dag_byte_length).
+        """
+
     @property
     def size(self) -> int:
         """Returns the number of entries in the directory."""
@@ -121,7 +147,7 @@ class DirectoryView(DirectoryWriter[Layout], Protocol, Generic[Layout]):
 
 
 @dataclass
-class DirectoryCreateOptions(Generic[Layout]):
+class DirectoryCreateOptions:
     writer: BlockWriter
-    settings: Optional[BaseEncoderSettings[Layout]] = None
+    settings: Optional[BaseEncoderSettings] = None
     metadata: Optional[Metadata] = None

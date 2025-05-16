@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal, Optional, Protocol, Sequence, Union
 
@@ -164,8 +164,70 @@ class AdvancedFile:
 File = Union[SimpleFile, AdvancedFile]
 
 
+#### Directory ####
 
 @dataclass
 class NamedDAGLink(DAGLink):
-    """A DAGLink that has a name, used for directory entries."""
+    """
+    A DAGLink that has a name, used for directory entries.
+    Specific types of NamedDAGLinks for clarity, though structurally same as NamedDAGLink
+    In Python, we might use NamedDAGLink directly and rely on the type of the target
+    or use Union types if strict type checking of target is needed.
+    """
     name: str
+
+DirectoryEntryLink = NamedDAGLink # For now, keep it simple. Target type is known by CID.
+"""
+Represents a link to any entry within a directory (file or another directory)
+This corresponds to DirectoryEntryLink in unixfs.ts which can be a link to File, Directory or Raw data
+"""
+
+@dataclass
+class DirectoryLink(DAGLink):
+    """
+    A DAGLink that specifically points to a Directory.
+    Represents a link specifically to a Directory DAG
+    In Python, this might be type-hinted as NamedDAGLink where target is known to be a Directory
+    Or, if DirectoryLink is just a DAGLink to a directory (without name, for root):
+    """
+    pass
+
+@dataclass
+class FlatDirectory:
+    """
+    Logical representation of a directory that fits a single block.
+    implicitly, type is NodeType.Directory when serialized
+    """
+    entries: Sequence[DirectoryEntryLink] # List of named links to children
+    metadata: Optional[Metadata] = None
+    type: NodeType = field(default=NodeType.Directory, init=False)
+
+
+# NOTE: HAMT-related structures
+
+@dataclass
+class DirectoryShard:
+    """
+    Logical representation of a shard in a HAMT-sharded directory.
+    Implicitly, type is NodeType.HAMTShard when serialized
+    """
+    entries: Sequence[Union[DirectoryEntryLink, 'ShardedDirectoryLink']]
+    bitfield: bytes
+    fanout: int
+    hash_type: int
+    metadata: Optional[Metadata] = None
+
+
+@dataclass
+class ShardedDirectoryLink(NamedDAGLink):
+    """
+    A NamedDAGLink that can point to a File, Directory, or another DirectoryShard.
+    Structurally same as NamedDAGLink, but indicates it's part of a sharded structure
+    """
+    pass
+
+# A ShardedDirectory is essentially the root DirectoryShard of a HAMT
+ShardedDirectory = DirectoryShard
+
+# Union type for any kind of directory representation
+Directory = Union[FlatDirectory, ShardedDirectory]

@@ -1,361 +1,274 @@
 # ipld_unixfs/directory/__init__.py
-from typing import TypeVar, Optional, Dict, List, AsyncIterable, Tuple, Any
-from dataclasses import dataclass, field
-import logging # For logging HAMT operations if needed
+import logging
+from typing import Optional, Dict, List, Iterable, Tuple, cast, Union
+from dataclasses import replace, field
+from ipld_dag_pb import PBLink
+from multiformats import CID # type: ignore
 
-from multiformats import CID, multihash # For CID creation and hashing
-from multiformats.multihash.murmur3 import murmur3_x64_64 # For HAMT bucket hashing (murmur3-64)
-from ipld_dag_pb import PBNode, encode, decode, code, PBLink
-
-# Imports from .api
+# API definitions for this module
 from .api import (
     DirectoryWriter,
     DirectoryView,
     DirectoryWriterState,
-    DirectoryEntryData,
     EntryLink,
     DirectoryWriteOptions,
-    DirectoryCreateOptions, # Using the new CreateOptions
+    DirectoryCreateOptions,
 )
-
-# Assuming these are (or will be) defined in your Python project structure
-from ..unixfs import (
+# Core UnixFS types
+from ipld_unixfs.unixfs import (
     Metadata,
-    FileLink,
+    FlatDirectory,
     DirectoryLink,
-    DirectoryEntryLink, # This should be defined in unixfs.py for named links
-    DirectoryShard,     # Logical representation of a HAMT shard
+    NamedDAGLink, # This is our DirectoryEntryLink for logical representation
     NodeType,
+    Mode,
 )
-from ..file.api import (
+# Common file/block operation types
+from ipld_unixfs.file.api import (
+    EncoderSettings,
     BlockWriter,
-    EncoderSettings, # Assuming this is the concrete type for settings
     CloseOptions,
-    Block, # Assuming Block is dataclass(cid: CID, bytes: bytes, value: Any)
-)
-# TODO: implement a Python HAMT implementation.
-
-# TODO: implement UnixFS Data protobuf serialization
-# from ..proptobuf_unixfs_definitions import Data as UnixFSProtobufData # Placeholder for protoc generated class
-
-from ipld_dag_pb import (
-    encode_node as encode_dag_pb_node,
-    PBLink,
+    Block, # Represents a finalized IPLD block (CID, bytes, value)
 )
 
-# Logger for this module
+# TODO: awaiting when the codecs are ready
+# from ipld_unixfs.codecs import (
+#     serialize_unixfs_data_field,
+#     mock_dag_pb_encoder, # Using the mock for now
+# )
+
 logger = logging.getLogger(__name__)
 
-Layout = TypeVar("Layout")
-
-
-
-def default_directory_settings(base_settings: Optional[EncoderSettings[Layout]] = None) -> EncoderSettings[Layout]:
-    """Provides default encoder settings, potentially extending base file settings."""
-    if base_settings:
-        # NOTE: In JS, directory settings often reuse file settings (hasher, linker)
-        # I might not need specific directory overrides if file.api.EncoderSettings is sufficient
-        return base_settings
-    else:
-        # NOTE: Fallback if no base_settings provided; create a minimal one.
-        # This part depends heavily on how EncoderSettings is defined in the Python project.
-        # For now, i'm assuming it's passed in.
-        raise ValueError("Base EncoderSettings must be provided for directory operations.")
-
-
-def configure_directory_settings(
-    options_settings: Optional[EncoderSettings[Layout]] = None,
-    global_defaults: Optional[EncoderSettings[Layout]] = None,
-) -> EncoderSettings[Layout]:
-    """Configures settings by merging options with defaults."""
-    final_settings = global_defaults if global_defaults else default_directory_settings()
-    if options_settings:
-        # NOTE: Perform a merge. For dataclasses, you might use asdict and update.
-        # This is simplified; robust merging depends on EncoderSettings structure.
-        # For TypedDict, it's a dictionary update.
-        if isinstance(final_settings, dict) and isinstance(options_settings, dict): # TypedDict
-            final_settings.update(options_settings)
-        elif hasattr(final_settings, '__dict__') and hasattr(options_settings, '__dict__'): # Dataclass
-            final_settings_dict = final_settings.__dict__
-            final_settings_dict.update({k:v for k,v in options_settings.__dict__.items() if v is not None})
-            final_settings = type(final_settings)(**final_settings_dict)
-        else:
-            final_settings = options_settings
-
-    if not (hasattr(final_settings, 'hasher') and hasattr(final_settings, 'linker') and hasattr(final_settings, 'dag_pb_encoder')):
-        raise ValueError("EncoderSettings misconfigured: missing hasher, linker or dag_pb_encoder")
-    return final_settings
-
-
-
-class PythonHAMTDirectoryWriter(DirectoryView[Layout]):
+class PythonFlatDirectoryWriter(DirectoryView):
     """
-    Python implementation mirroring JS HAMTDirectoryWriter.
-    Requires a Python HAMT library.
+    Implementation of a DirectoryView for creating UnixFS flat (single-block)
+    directories.
     """
-    state: DirectoryWriterState[Layout]
+    state: DirectoryWriterState
 
-    def __init__(self, initial_state: DirectoryWriterState[Layout]):
+    def __init__(self, initial_state: DirectoryWriterState):
+        """
+        Initializes the directory writer with a given state.
+        Typically called by the `create` factory function.
+        """
         self.state = initial_state
-        # Ensure the 'entries' in state is a HAMT map/builder instance
-        # if not isinstance(self.state.entries, YourPythonHAMTLibrary.Map):
-        #     # Or initialize it here if it wasn't pre-initialized
-        #     self.state.entries = YourPythonHAMTLibrary.builder() # Example
 
     @property
     def writer(self) -> BlockWriter:
         return self.state.writer
 
     @property
-    def settings(self) -> EncoderSettings[Layout]:
+    def settings(self) -> EncoderSettings:
         return self.state.settings
 
-    def _as_writable_state(self) -> DirectoryWriterState[Layout]:
+    def _ensure_writable(self) -> None:
+        """Checks if the directory is closed and raises an error if so."""
         if self.state.closed:
             raise RuntimeError(
                 "Directory is closed and cannot be modified. "
                 "Use fork() to create a new writable version."
             )
-        return self.state
 
     def set(
         self, name: str, entry: EntryLink, options: Optional[DirectoryWriteOptions] = None
-    ) -> "PythonHAMTDirectoryWriter[Layout]":
-        state = self._as_writable_state()
-        write_opts = options or DirectoryWriteOptions()
+    ) -> "PythonFlatDirectoryWriter":
+        self._ensure_writable()
+        opts = options or DirectoryWriteOptions()
 
-        # TODO: implement HAMT-specific logic:
-        # current_hamt_map = state.entries # Assuming entries is the HAMT map/builder
-        # if not write_opts.overwrite and current_hamt_map.has(name):
-        #     raise ValueError(f"Entry '{name}' already exists and overwrite is false.")
-        # current_hamt_map.set(name, entry)
-        logger.warning("HAMT set() logic not fully implemented. Needs Python HAMT library.")
-        state.entries[name] = entry # Simplified: direct dict operation
+        if "/" in name:
+            raise ValueError(
+                f"Directory entry name \"{name}\" contains forbidden \"/\" character."
+            )
+        if not opts.overwrite and name in self.state.entries:
+            raise ValueError(
+                f"Directory already contains entry with name \"{name}\"."
+            )
+        
+        self.state.entries[name] = entry
+        logger.debug(f"Set entry '{name}' -> CID: {entry.cid.to_string()}")
         return self
 
-    def remove(self, name: str) -> "PythonHAMTDirectoryWriter[Layout]":
-        state = self._as_writable_state()
-        # TODO: implement HAMT-specific logic:
-        # current_hamt_map = state.entries
-        # current_hamt_map.delete(name)
-        logger.warning("HAMT remove() logic not fully implemented. Needs Python HAMT library.")
-        if name in state.entries: # Simplified: direct dict operation
-            del state.entries[name]
+    def remove(self, name: str) -> "PythonFlatDirectoryWriter":
+        self._ensure_writable()
+        if name in self.state.entries:
+            removed_entry = self.state.entries.pop(name)
+            logger.debug(f"Removed entry '{name}' (CID: {removed_entry.cid.to_string()})")
+        else:
+            logger.debug(f"Attempted to remove non-existent entry '{name}'")
         return self
-
-    async def _encode_hamt_shard_block(
-        self, shard_data: DirectoryShard
-    ) -> Block[DirectoryShard]:
-        """
-        Encodes a logical DirectoryShard into an IPLD Block.
-        Mirrors JS `encodeHAMTShardBlock`.
-        """
-        # TODO: implement UnixFS Protobuf Data field for the HAMTShard
-        # unixfs_pb = UnixFSProtobufData(
-        #     Type=NodeType.HAMTShard.value, # Ensure NodeType has .value for enum int
-        #     # fanout=shard_data.fanout, # from DirectoryShard object
-        #     # hashType=shard_data.hash_type, # from DirectoryShard object
-        #     # data=shard_data.bitfield, # Bitfield might go into data or a specific field
-        # )
-        # Actual fanout, hashType, bitfield population depends on your DirectoryShard definition
-        # and how it maps to the UnixFSData protobuf message.
-        # unixfs_pb_bytes = unixfs_pb.SerializeToString() # Using actual protobuf library
-
-
-        # The DAG-PB encoder needs links (from shard_data.entries) and the UnixFS data bytes
-        # Convert shard_data.entries (DirectoryEntryLink) to PBLink for DAG-PB encoder
-        pb_links: List[PBLink] = []
-        for entry_link in shard_data.entries: # Assuming shard_data has 'entries'
-            pb_links.append(PBLink(Name=entry_link.name, Hash=entry_link.cid, Tsize=entry_link.dag_byte_length))
-
-        # TODO: implement UnixFS for HAMTShard
-        # unixfs_data_for_dagpb_node = self._serialize_unixfs_protobuf_for_hamtshard(shard_data)
-        # block_bytes = self.settings.dag_pb_encoder(links=pb_links, data=unixfs_data_for_dagpb_node)
-        raise NotImplementedError("_encode_hamt_shard_block: UnixFS & DAG-PB encoding for HAMTShard needed.")
-
-
-        # TODO: Hash the block bytes
-        # block_hash_digest = await self.settings.hasher.digest(block_bytes) # Assuming async hasher
-
-        # 3. Create CID
-        # block_cid = self.settings.linker.create_link(
-        #     # Assuming dag-pb codec code (0x70)
-        #     # Your linker might take the codec name or code directly
-        #     codec_code=0x70, # dag-pb
-        #     digest=block_hash_digest
-        # )
-        # return Block(cid=block_cid, bytes=block_bytes, value=shard_data)
-
-
-    async def _iterate_hamt_blocks(
-        self, hamt_node: Any # Python HAMT node type
-    ) -> AsyncIterable[Block[DirectoryShard]]:
-        """
-        Recursively iterates HAMT nodes, encodes them, and yields blocks.
-        Mirrors JS `iterateBlocks`. Highly dependent on Python HAMT library.
-        """
-        # This is a very complex part that needs a Python HAMT library
-        # with similar iteration capabilities as @perma/map.
-        # Conceptual structure:
-        #
-        # collected_entries_for_current_shard: List[DirectoryEntryLink] = []
-        #
-        # for item in your_hamt_lib.iterate_node_contents(hamt_node):
-        #     if item.is_direct_value_entry: # e.g. ('foo.txt', FileLink(...))
-        #         collected_entries_for_current_shard.append(
-        #             DirectoryEntryLink(name=item.key, cid=item.value.cid, dag_byte_length=item.value.dag_byte_length)
-        #         )
-        #     elif item.is_sub_hamt_node_pointer: # A link to another shard
-        #         sub_shard_root_block: Optional[Block[DirectoryShard]] = None
-        #         async for block in self._iterate_hamt_blocks(item.sub_node_pointer):
-        #             yield block
-        #             sub_shard_root_block = block # Keep track of the last yielded (root of sub-shard)
-        #
-        #         if sub_shard_root_block is None:
-        #             raise RuntimeError("Sub-shard iteration yielded no root block.")
-        #
-        #         # Create a link to this sub-shard's root
-        #         collected_entries_for_current_shard.append(
-        #             DirectoryEntryLink(
-        #                 name=item.prefix_for_sub_node, # HAMT prefix
-        #                 cid=sub_shard_root_block.cid,
-        #                 dag_byte_length=sub_shard_root_block.value.calculate_cumulative_size() # Or from block
-        #             )
-        #         )
-        #
-        # # After collecting all entries for the current hamt_node (shard):
-        # current_shard_logical_data = DirectoryShard(
-        #     entries=collected_entries_for_current_shard,
-        #     bitfield=your_hamt_lib.get_bitfield(hamt_node),
-        #     fanout=your_hamt_lib.get_fanout(hamt_node), # Or from settings
-        #     hash_type=murmur3_x64_64.code # Multicodec for murmur3-64
-        # )
-        #
-        # encoded_block = await self._encode_hamt_shard_block(current_shard_logical_data)
-        # yield encoded_block
-        logger.critical("PythonHAMTDirectoryWriter._iterate_hamt_blocks requires a compatible Python HAMT library.")
-        raise NotImplementedError("HAMT block iteration not implemented.")
-        yield # Make it an async generator
 
     async def close(self, options: Optional[CloseOptions] = None) -> DirectoryLink:
-        state = self._as_writable_state()
-        close_opts = options or CloseOptions() # Assuming CloseOptions is defined
+        """
+        Finalizes the flat directory:
+        1. Converts internal entries to sorted NamedDAGLinks.
+        2. Creates a logical FlatDirectory object.
+        3. Serializes the UnixFS Protobuf Data field for a directory.
+        4. Prepares PBLinks for the DAG-PB encoder.
+        5. Encodes the DAG-PB node using the configured encoder.
+        6. Hashes the encoded block and creates a CID.
+        7. Writes the block using the BlockWriter.
+        8. Handles BlockWriter closing based on options.
+        9. Returns a DirectoryLink to the created directory block.
+        """
+        if self.state.closed:
+            # Consider if it should re-calculate and return the link or raise error.
+            # For simplicity, raise error if trying to re-close.
+            raise RuntimeError("Directory is already closed.")
 
-        # Finalize the HAMT structure
-        # final_hamt_structure = state.entries.build() # Or however your HAMT lib finalizes
-        # hamt_root_node = final_hamt_structure.root_node()
-        logger.critical("PythonHAMTDirectoryWriter.close requires Python HAMT finalization.")
-        if not state.entries: # Simplified for non-HAMT case
-             # Handle empty directory case: create an empty DAG-PB node with UnixFS Directory type
-            empty_unixfs_pb = UnixFSProtobufData(Type=NodeType.Directory.value)
-            # empty_unixfs_pb_bytes = empty_unixfs_pb.SerializeToString()
-            # empty_dir_block_bytes = self.settings.dag_pb_encoder(links=[], data=empty_unixfs_pb_bytes)
-            # empty_dir_hash = await self.settings.hasher.digest(empty_dir_block_bytes)
-            # empty_dir_cid = self.settings.linker.create_link(0x70, empty_dir_hash)
-            # return DirectoryLink(cid=empty_dir_cid, dag_byte_length=len(empty_dir_block_bytes))
-            raise NotImplementedError("Empty directory closing not fully implemented.")
+        self.state.closed = True # Mark as closed early
+        close_opts = options or CloseOptions()
+        logger.info(f"Closing directory with {len(self.state.entries)} entries.")
+
+        # 1. Prepare NamedDAGLink list for FlatDirectory object, sorted by name
+        # This is crucial for canonical representation.
+        sorted_entry_names = sorted(self.state.entries.keys())
+        dir_entry_links: List[NamedDAGLink] = []
+        for name in sorted_entry_names:
+            link_obj = self.state.entries[name]
+            dir_entry_links.append(
+                NamedDAGLink(name=name, cid=link_obj.cid, dag_byte_length=link_obj.dag_byte_length)
+            )
+
+        # 2. Create logical FlatDirectory object
+        flat_dir_node_logical = FlatDirectory(
+            entries=dir_entry_links,
+            metadata=self.state.metadata
+        )
+
+        # 3. Serialize UnixFS Data field (Type=DIRECTORY, with metadata)
+        # TODO: awaiting when the codecs are ready
+        # unixfs_data_bytes = serialize_unixfs_data_field(
+        #     node_type=NodeType.DIRECTORY,
+        #     metadata=flat_dir_node_logical.metadata
+        # )
+
+        # 4. Convert DirectoryEntryLinks (NamedDAGLinks) to PBLinks for DAG-PB encoder
+        pb_links_for_encoder: List[PBLink] = [
+            PBLink(Name=entry.name, Hash=entry.cid, Tsize=entry.dag_byte_length)
+            for entry in flat_dir_node_logical.entries
+        ]
+
+        # 5. Encode the DAG-PB node
+        # TODO: awaiting when the codecs are ready
+        # encoded_block_bytes = self.settings.dag_pb_encoder(
+        #     links=pb_links_for_encoder, data=unixfs_data_bytes
+        # )
+        # logger.debug(f"Encoded DAG-PB block bytes (len: {len(encoded_block_bytes)})")
 
 
-        # Iterate through HAMT shards, encode them, and write to BlockWriter
-        root_hamt_block: Optional[Block[DirectoryShard]] = None
-        # async for block in self._iterate_hamt_blocks(hamt_root_node):
-        #     root_hamt_block = block
-        #     # Handle BlockWriter backpressure if necessary
-        #     # if (self.state.writer.desired_size is not None and self.state.writer.desired_size <= 0):
-        #     #    await self.state.writer.ready() # If your BlockWriter supports this
-        #     await self.state.writer.write(block) # Assuming BlockWriter is async
+        # 6. Hash and create CID
+        # TODO: awaiting when the codecs are ready
+        # digest = await self.settings.hasher.digest(encoded_block_bytes)
+        # UnixFS (non-raw leaf) typically uses DAG-PB codec code 0x70
+        # cid = self.settings.linker.create_link(codec_code=0x70, digest=digest) # 0x70 is dag-pb
+        # logger.info(f"Finalized directory CID: {cid.to_string()}")
 
-        # if root_hamt_block is None:
-        #     raise RuntimeError("HAMT processing yielded no root block for the directory.")
-        raise NotImplementedError("PythonHAMTDirectoryWriter.close HAMT processing not implemented.")
+        # 7. Write block using BlockWriter
+        # TODO: awaiting when the codecs are ready
+        # final_block = Block(cid=cid, bytes=encoded_block_bytes, value=flat_dir_node_logical)
+        # await self.state.writer.write(final_block)
+        # logger.debug(f"Wrote directory block to BlockWriter.")
 
-        state.closed = True
+        # 8. Handle BlockWriter closing options
+        if close_opts.close_writer:
+            await self.state.writer.close()
+            logger.debug("Closed underlying BlockWriter.")
 
-        # Handle BlockWriter closing/releasing lock
-        # if close_opts.close_writer:
-        #     await self.state.writer.close()
-        # elif close_opts.release_lock: # If writer has a locking mechanism
-        #     self.state.writer.releaseLock()
+        # 9. Determine dagByteLength for the DirectoryLink
+        # For a flat directory, this is the size of its own encoded block.
+        # dir_dag_byte_length = len(encoded_block_bytes)
 
-        # Calculate cumulative size for the root DirectoryLink
-        # cumulative_size = root_hamt_block.value.calculate_cumulative_size() # Or from block.bytes and links
+        return DirectoryLink(cid=cid, dag_byte_length=dir_dag_byte_length)
 
-        # return DirectoryLink(cid=root_hamt_block.cid, dag_byte_length=cumulative_size)
+    def fork(self, options: Optional[DirectoryCreateOptions] = None) -> "PythonFlatDirectoryWriter":
+        """
+        Creates a new PythonFlatDirectoryWriter instance with a copied state,
+        allowing for modifications without affecting the original (especially if closed).
+        New components (writer, settings, metadata) can be provided via options.
+        """
+        opts = options or DirectoryCreateOptions( # Provide defaults if options is None
+            writer=self.state.writer,
+            settings=self.state.settings,
+            metadata=self.state.metadata
+        )
 
+        # Deep copy mutable parts of the state if necessary,
+        # but for dict of immutable CIDs/basic types, .copy() is fine.
+        new_entries_map = self.state.entries.copy()
 
-    def fork(self, options: Optional[Dict] = None) -> "PythonHAMTDirectoryWriter[Layout]":
-        opts = options or {}
-        current_state = self.state
-
-        # Create a new state, deep copying mutable parts, especially the HAMT structure
-        # new_hamt_map_builder = current_state.entries.fork_builder() # If HAMT lib supports efficient forking
-        new_entries_map = current_state.entries.copy() # Simplified for dict
-        logger.warning("HAMT fork() logic not fully implemented. Needs Python HAMT library support for efficient forking.")
+        # Metadata: use new if provided, else copy existing (dataclasses are fine with replace)
+        new_metadata = opts.metadata if opts.metadata is not None else \
+                       (replace(self.state.metadata) if self.state.metadata else Metadata())
 
 
         new_state = DirectoryWriterState(
             entries=new_entries_map,
-            metadata=current_state.metadata, # Assumed immutable or deep copied if mutable
-            writer=opts.get("writer", current_state.writer),
-            settings=configure_directory_settings(
-                opts.get("settings"), current_state.settings
-            ),
-            closed=False,
+            metadata=new_metadata, # type: ignore
+            writer=opts.writer,
+            settings=opts.settings,
+            closed=False, # A new fork is always open
         )
-        return PythonHAMTDirectoryWriter(new_state)
+        logger.debug(f"Forked directory. Original closed: {self.state.closed}. New entries: {len(new_entries_map)}")
+        return PythonFlatDirectoryWriter(new_state)
 
     def entries(self) -> Iterable[Tuple[str, EntryLink]]:
-        # For HAMT, this would iterate through the HAMT map
-        # return self.state.entries.items_iterable() # Example
-        return self.state.entries.items() # For dict
+        """Iterates over (name, EntryLink) pairs."""
+        return self.state.entries.items()
+
+    def iter_entry_links(self) -> Iterable[NamedDAGLink]:
+        """Iterates over entries yielding NamedDAGLink objects."""
+        for name, link_obj in self.state.entries.items():
+            yield NamedDAGLink(name=name, cid=link_obj.cid, dag_byte_length=link_obj.dag_byte_length)
 
     def has(self, name: str) -> bool:
-        # return self.state.entries.has(name) # For HAMT
-        return name in self.state.entries # For dict
+        """Checks if an entry with the given name exists."""
+        return name in self.state.entries
 
     @property
     def size(self) -> int:
-        # return self.state.entries.size() # For HAMT
-        return len(self.state.entries) # For dict
+        """Returns the number of entries in the directory."""
+        return len(self.state.entries)
 
 
 
-def create(options: DirectoryCreateOptions[Layout]) -> PythonHAMTDirectoryWriter[Layout]:
+def create(options: DirectoryCreateOptions) -> PythonFlatDirectoryWriter:
     """
-    Creates a new directory writer.
-    Mirrors `create` in JS.
+    Factory function to create a new PythonFlatDirectoryWriter instance.
+    Ensures that necessary settings and a block writer are provided.
     """
-    # Get global default settings if your project has a way to provide them
-    # For now, assume EncoderSettings must be somewhat complete in options or we make one.
-    if options.settings is None:
-        raise ValueError("EncoderSettings must be provided in DirectoryCreateOptions.")
+    if not isinstance(options, DirectoryCreateOptions):
+        raise TypeError("Invalid options type for directory creation.")
+    if not hasattr(options.settings, 'hasher') or \
+       not hasattr(options.settings, 'linker') or \
+       not hasattr(options.settings, 'dag_pb_encoder'):
+        raise ValueError("EncoderSettings must provide hasher, linker, and dag_pb_encoder.")
 
-    # # In a real scenario, you'd have a global default_settings_instance
-    # # configured_settings = configure_directory_settings(options.settings, global_default_settings_instance)
-    # configured_settings = options.settings # Assuming options.settings is already fully configured
+    # Initialize with default metadata if none provided
+    current_metadata = options.metadata if options.metadata is not None else Metadata()
+    # You might want to set default mode/mtime for directories here if not present
+    if current_metadata.mode is None:
+        current_metadata.mode = Mode(0o755) # Default directory mode
+    # if current_metadata.mtime is None:
+    #    current_metadata.mtime = UnixFSTime(Seconds=int(time.time()), FractionalNanoseconds=0)
 
-    initial_hamt_entries_map: Dict[str, EntryLink] = {} # TODO: Replace with PythonHAMTMap() or Builder()
 
     initial_state = DirectoryWriterState(
-        entries=initial_hamt_entries_map,
-        metadata=options.metadata or Metadata(), # Assuming Metadata() creates a default
+        entries={}, # Starts empty
+        metadata=current_metadata,
         writer=options.writer,
-        settings=configured_settings,
+        settings=options.settings,
         closed=False,
     )
-    return PythonHAMTDirectoryWriter(initial_state)
+    logger.info("Created new PythonFlatDirectoryWriter.")
+    return PythonFlatDirectoryWriter(initial_state)
 
-# Exports for users of this module
 __all__ = [
     "DirectoryWriter",
     "DirectoryView",
     "DirectoryWriterState",
-    "DirectoryEntryData",
     "EntryLink",
     "DirectoryWriteOptions",
     "DirectoryCreateOptions",
     "create",
-    "PythonHAMTDirectoryWriter",
-    "default_directory_settings",
-    "configure_directory_settings",
+    "PythonFlatDirectoryWriter",
 ]
