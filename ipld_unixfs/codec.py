@@ -3,7 +3,7 @@ from logging import getLogger
 
 import ipld_dag_pb
 import unixfs
-from gen.unixfs_pb2 import Data
+from gen.unixfs_pb2 import Data, UnixTime
 
 logger = getLogger(__name__)
 
@@ -131,3 +131,67 @@ def create_directory_shard(
         hash_type=hash_type,
         entries=entries
     )
+
+
+def encode_raw(content: bytes) -> memoryview[int]:
+    return encode_pb(
+        data=Data(
+            Type=Data.DataType.Raw,
+            Data=(content if len(content) > 0 else None),
+            filesize=len(content),
+            blocksizes=EMPTY
+        ),
+        links=[]
+    )
+
+
+def encode_mtime(mtime: unixfs.MTime | None) -> unixfs.MTime | None:
+    if mtime is None:
+        return
+
+    if not mtime.nsecs:  # mtime.nsecs could either be `None` or `0`
+        return unixfs.MTime(secs=mtime.secs, nsecs=None)
+
+    return mtime
+
+
+def encode_mode(specified_mode: int | None, default_mode: int | None) -> unixfs.Mode | None:
+    mode = None
+    if specified_mode is not None:
+        mode = decode_mode(specified_mode)
+
+    return (None if mode == default_mode or mode is None else mode)
+
+
+def encode_metadata(metadata: unixfs.Metadata, default_mode: unixfs.Mode = DEFAULT_FILE_MODE) -> unixfs.Metadata:
+    return unixfs.Metadata(
+        mode=(encode_mode(metadata.mode, default_mode) if metadata.mode is not None else None),
+        mtime=(encode_mtime(metadata.mtime) if metadata.mtime is not None else None)
+    )
+
+
+def encode_simple_file(content: bytes, metadata: unixfs.Metadata | None = None) -> memoryview[int]:
+    if metadata:
+        metadata = encode_metadata(metadata=metadata)
+
+    data = Data(
+        Type=Data.DataType.File,
+        # adding an empty file to both the go-ipfs and js-ipfs produces block in
+        # which `Data` is omitted but filesize and blocksizes are present.
+        # For the sake of hash consistency we do the same.
+        Data=(content if len(content) > 0 else None),
+        filesize=len(content),
+        blocksizes=[],
+        mode=(metadata.mode if metadata else None),
+        mtime=(
+            UnixTime(
+                Seconds=metadata.mtime.secs, FractionalNanoseconds=metadata.mtime.nsecs  # pyright: ignore[reportOptionalMemberAccess]
+            ) if metadata else None
+        )
+    )
+
+    return encode_pb(data=data, links=[])
+
+
+def encode_file(node: unixfs.File | unixfs.FileChunk | unixfs.FileShard, ignore_metadata: bool = False) -> memoryview[int]:
+    ...
