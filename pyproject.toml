@@ -28,6 +28,11 @@ dependencies = [
     "protobuf",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest"
+]
+
 [project.urls]
 Homepage = "https://github.com/storacha/py-ipld-unixfs"
 Issues = "https://github.com/storacha/py-ipld-unixfs/issues"
