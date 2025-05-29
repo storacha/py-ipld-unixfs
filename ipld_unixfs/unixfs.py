@@ -18,6 +18,9 @@ class NodeType(IntEnum):
     HAMTShard = 5
 
 
+Node: TypeAlias = "Raw | SimpleFile | AdvancedFile | ComplexFile | Directory | DirectoryShard | ShardedDirectory | Symlink"
+
+
 File: TypeAlias = "SimpleFile | AdvancedFile | ComplexFile"
 
 
@@ -30,7 +33,7 @@ class SimpleFile:
     interpretation SHOULD vary depending on where you encounter the node 
     (In root of the DAG or not).
     """
-    content: bytes | bytearray
+    content: bytes
     type: Literal[NodeType.File] = NodeType.File
     layout: Literal["simple"] = "simple"
     metadata: "Metadata | None" = None
@@ -56,9 +59,6 @@ class AdvancedFile:
     metadata: Metadata | None = None
 
 
-Chunk: TypeAlias = "Raw | FileChunk"
-
-
 @dataclass(frozen=True)
 class Raw:
     """
@@ -82,7 +82,7 @@ class Raw:
 
     Deprecated: Use FileChunk or raw binary nodes instead.
     """
-    content: bytes  # Python's bytes is equivalent to Uint8Array
+    content: bytes
     type: Literal[NodeType.Raw] = NodeType.Raw  # This enforces the type at runtime
 
 
@@ -118,6 +118,9 @@ class FileChunk:
     layout: Literal["simple"]
     content: bytes
     metadata: Metadata | None = None
+
+
+Chunk: TypeAlias = Raw | FileChunk
 
 
 @dataclass(frozen=True)
