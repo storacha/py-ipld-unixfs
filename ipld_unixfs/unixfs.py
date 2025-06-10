@@ -38,6 +38,14 @@ class SimpleFile:
     layout: Literal["simple"] = "simple"
     metadata: "Metadata | None" = None
 
+    @property
+    def filesize(self) -> int:
+        return len(self.content)
+
+    def encode(self) -> memoryview[int]:
+        from .codec import encode_simple_file
+        return encode_simple_file(content=self.content, metadata=self.metadata)
+
 
 @dataclass(frozen=True)
 class Metadata:
@@ -53,9 +61,9 @@ class AdvancedFile:
     SHOULD vary depending on where you encounter the node (In root of the DAG
     or not).
     """
-    type: Literal[NodeType.File]
-    layout: Literal["advanced"]
     parts: tuple["FileLink", ...]
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["advanced"] = "advanced"
     metadata: Metadata | None = None
 
 
@@ -100,23 +108,23 @@ class FileChunk:
 
     Please note that in protobuf representation there is only one `file` node
     type with many optional fields, however different combination of fields
-    corresponds to a different semntaics and we represent each via different
+    corresponds to a different semantics and we represent each via different
     type.
 
     Also note that some file nodes may also have `mode` and `mtime` fields,
     which we represent via `SimpleFile` type, however in practice the two are
     indistinguishable & how to interpret will only depend on whether the node is
     encountered in DAG root position or not. That is because one could take two
-    `SimpleFile` nodes and represent their concatination via `AdvancedFile`
+    `SimpleFile` nodes and represent their concatenation via `AdvancedFile`
     simply by linking to them. In such scenario consumer SHOULD treat leaves as
     `FileChunk`s and ignoring their `mode` and `mtime` fileds. However if those
     leaves are encountered on their own consumer SHOULD treat them as
     `SimpleFile`s and take `mode` and `mtime` fields into account.
     """
 
-    type: Literal[NodeType.File]
-    layout: Literal["simple"]
     content: bytes
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["simple"] = "simple"
     metadata: Metadata | None = None
 
 
@@ -127,12 +135,12 @@ Chunk: TypeAlias = Raw | FileChunk
 class FileShard:
     """
     Logical representation of a file shard. When large files are chunked
-    slices that span multiple blocks may be represented via file shards in
+    *slices* that span multiple blocks may be represented via file shards in
     certain DAG layouts (e.g. balanced & trickle DAGs).
 
     Please note in protobuf representation there is only one `file` node type
     with many optional fields. Different combination of those fields corresponds
-    to a different semntaics. Combination of fields in this type represent a
+    to a different semantics. Combination of fields in this type represent a
     branch nodes in the file DAGs in which nodes beside leaves and root exist.
 
     Also note that you may encounter `FileShard`s with `mode` and `mtime` fields
@@ -142,9 +150,9 @@ class FileShard:
     regard `mode`, `mtime` field) and treat it as `FileShard` node if encountered
     in any other position (that is ignore `mode`, `mtime` fileds).
     """
-    type: Literal[NodeType.File]
-    layout: Literal["advanced"]
     parts: tuple["FileLink", ...]
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["advanced"] = "advanced"
 
 
 @dataclass(frozen=True)
@@ -171,8 +179,8 @@ FileLink: TypeAlias = ContentDAGLink[bytes] | ContentDAGLink[Chunk] | ContentDAG
 @dataclass(frozen=True)
 class ComplexFile:
     """
-    These type of nodes are not produces by referenece IPFS implementations, yet
-    such file nodes could be represented and therefor defined with this type.
+    These type of nodes are not produces by reference IPFS implementations, yet
+    such file nodes could be represented and therefore defined with this type.
 
     In this file representation first chunk of the file is represented by a
     `data` field while rest of the file is represented by links.
@@ -181,10 +189,10 @@ class ComplexFile:
     deprecated), however it is still valid representation and UnixFS consumers
     SHOULD recognize it and interpret as described.
     """
-    type: Literal[NodeType.File]
-    layout: Literal["complex"]
     content: bytes
     parts: tuple[FileLink, ...]
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["complex"] = "complex"
     metadata: Metadata | None = None
 
 
@@ -194,7 +202,7 @@ class UnknownFile:
     This is a utility type that represents any kind of file which is then refined to
     one of the other definitions
     """
-    type: Literal[NodeType.File]
+    type: Literal[NodeType.File] = NodeType.File
     content: bytes | None = None
     parts: tuple[FileLink, ...] | None = None
     metadata: Metadata | None = None
@@ -211,8 +219,8 @@ class FlatDirectory:
     """
     Logical Representation of a directory that fits a single block
     """
-    type: Literal[NodeType.Directory]
     entries: tuple["DirectoryEntryLink", ...]
+    type: Literal[NodeType.Directory] = NodeType.Directory
     metadata: Metadata | None = None
 
 
@@ -234,18 +242,19 @@ class DirectoryShard:
     practice they are the same and interpretation should vary based on view. If
     viewed from the root position it is `AdvancedDirectoryLayout` and it's `mtime`
     `mode` field to be respected, otherwise it is `DirectoryShard` and it's
-    `mtime` and `mode` field to be ignored.
+    `mtime` and `mode` field to be ignored. It's the directory equivalent of
+    `FileShard`.
 
     :param bitfield: HAMT table width (In IPFS it's usually 256)
 
     :param fanout: Multihash code for the hashing function used (In IPFS it's `murmur3-64`_ )
         .. _murmur3-64: https://github.com/multiformats/multicodec/blob/master/table.csv#L24
     """
-    type: Literal[NodeType.HAMTShard]
     bitfield: bytes
     fanout: int
     hash_type: int
     entries: tuple["ShardedDirectoryLink", ...]
+    type: Literal[NodeType.HAMTShard] = NodeType.HAMTShard
     metadata: Metadata | None = None
 
 
@@ -274,8 +283,8 @@ class Symlink:
 
     :param content: UTF-8 encoded path to the symlink target
     """
-    type: Literal[NodeType.Symlink]
     content: bytes
+    type: Literal[NodeType.Symlink] = NodeType.Symlink
     metadata: Metadata | None = None
 
 
@@ -328,3 +337,9 @@ class MTime:
     """
     secs: int
     nsecs: int | None = None
+
+
+@dataclass(frozen=True)
+class Block:
+    cid: CID
+    bytes: bytes
