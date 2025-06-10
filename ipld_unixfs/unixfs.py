@@ -24,7 +24,7 @@ Node: TypeAlias = "Raw | SimpleFile | AdvancedFile | ComplexFile | Directory | D
 File: TypeAlias = "SimpleFile | AdvancedFile | ComplexFile"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SimpleFile:
     """
     Logical representation of a file that fits a single block.
@@ -47,13 +47,13 @@ class SimpleFile:
         return encode_simple_file(content=self.content, metadata=self.metadata)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Metadata:
     mode: "Mode | None" = None
     mtime: "MTime | None" = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AdvancedFile:
     """
     Logical represenatation of a file that consists of multiple blocks. Note it
@@ -67,7 +67,7 @@ class AdvancedFile:
     metadata: Metadata | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Raw:
     """
     Represents a UnixFS Raw node (a leaf node of the file DAG layout).
@@ -94,7 +94,7 @@ class Raw:
     type: Literal[NodeType.Raw] = NodeType.Raw  # This enforces the type at runtime
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FileChunk:
     """
     Logical representation of a file chunk (a leaf node of the file DAG layout).
@@ -131,7 +131,7 @@ class FileChunk:
 Chunk: TypeAlias = Raw | FileChunk
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FileShard:
     """
     Logical representation of a file shard. When large files are chunked
@@ -155,7 +155,7 @@ class FileShard:
     layout: Literal["advanced"] = "advanced"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DAGLink(Generic[T]):
     cid: CID
     """*C*ontent *Id*entifier of the target DAG."""
@@ -167,7 +167,7 @@ class DAGLink(Generic[T]):
     """
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ContentDAGLink(DAGLink[T]):
     content_byte_length: int
     """Total number of bytes in the file."""
@@ -176,7 +176,7 @@ class ContentDAGLink(DAGLink[T]):
 FileLink: TypeAlias = ContentDAGLink[bytes] | ContentDAGLink[Chunk] | ContentDAGLink[FileShard]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComplexFile:
     """
     These type of nodes are not produces by reference IPFS implementations, yet
@@ -196,7 +196,7 @@ class ComplexFile:
     metadata: Metadata | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class UnknownFile:
     """
     This is a utility type that represents any kind of file which is then refined to
@@ -214,7 +214,7 @@ Type for either UnixFS directory representation
 """
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FlatDirectory:
     """
     Logical Representation of a directory that fits a single block
@@ -224,7 +224,7 @@ class FlatDirectory:
     metadata: Metadata | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class NamedDAGLink(DAGLink[T]):
     name: str
 
@@ -234,7 +234,7 @@ DirectoryEntryLink: TypeAlias = NamedDAGLink[File] | NamedDAGLink[Directory] | N
 DirectoryLink: TypeAlias = DAGLink[Directory]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DirectoryShard:
     """
     Logical represenatation of the shard of the sharded directory. Please note
@@ -258,7 +258,7 @@ class DirectoryShard:
     metadata: Metadata | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ShardedDirectory(DirectoryShard):
     """
     Logical representation of directory encoded in multiple blocks (usually when
@@ -274,7 +274,7 @@ ShardedDirectoryLink: TypeAlias = NamedDAGLink[File] | NamedDAGLink[bytes] | Nam
 
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Symlink:
     """
     Logical representation of a `symbolic link`_.
@@ -288,7 +288,7 @@ class Symlink:
     metadata: Metadata | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class UnixTime:
     """Representing the modification time in seconds relative to the unix epoch
     1970-01-01T00:00:00Z.
@@ -329,7 +329,7 @@ Spec implementations MUST handle bits they do not expect as follows:
 See: https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html
 """
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MTime:
     """
     Represents modification time in seconds relative to the unix epoch
@@ -339,7 +339,7 @@ class MTime:
     nsecs: int | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Block:
     cid: CID
     bytes: bytes
