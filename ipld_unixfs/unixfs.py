@@ -1,7 +1,10 @@
+from collections.abc import Sequence
 from enum import IntEnum
 from dataclasses import dataclass
 from typing import Generic, Literal, TypeAlias, TypeVar
 from multiformats import CID
+
+from gen.unixfs_pb2 import Data
 
 
 # Type variable for generic types
@@ -10,18 +13,12 @@ T = TypeVar('T')
 
 class NodeType(IntEnum):
     """Types of UnixFS nodes."""
-    Raw = 0
-    Directory = 1
-    File = 2
-    Metadata = 3
-    Symlink = 4
-    HAMTShard = 5
-
-
-Node: TypeAlias = "Raw | SimpleFile | AdvancedFile | ComplexFile | Directory | DirectoryShard | ShardedDirectory | Symlink"
-
-
-File: TypeAlias = "SimpleFile | AdvancedFile | ComplexFile"
+    Raw = Data.DataType.Raw
+    Directory = Data.DataType.Directory
+    File = Data.DataType.File
+    Metadata = Data.DataType.Metadata
+    Symlink = Data.DataType.Symlink
+    HAMTShard = Data.DataType.HAMTShard
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +39,7 @@ class SimpleFile:
     def filesize(self) -> int:
         return len(self.content)
 
-    def encode(self) -> memoryview[int]:
+    def encode(self) -> memoryview:
         from .codec import encode_simple_file
         return encode_simple_file(content=self.content, metadata=self.metadata)
 
@@ -61,7 +58,7 @@ class AdvancedFile:
     SHOULD vary depending on where you encounter the node (In root of the DAG
     or not).
     """
-    parts: tuple["FileLink", ...]
+    parts: Sequence["FileLink"]
     type: Literal[NodeType.File] = NodeType.File
     layout: Literal["advanced"] = "advanced"
     metadata: Metadata | None = None
@@ -150,7 +147,7 @@ class FileShard:
     regard `mode`, `mtime` field) and treat it as `FileShard` node if encountered
     in any other position (that is ignore `mode`, `mtime` fileds).
     """
-    parts: tuple["FileLink", ...]
+    parts: Sequence["FileLink"]
     type: Literal[NodeType.File] = NodeType.File
     layout: Literal["advanced"] = "advanced"
 
@@ -190,7 +187,7 @@ class ComplexFile:
     SHOULD recognize it and interpret as described.
     """
     content: bytes
-    parts: tuple[FileLink, ...]
+    parts: Sequence[FileLink]
     type: Literal[NodeType.File] = NodeType.File
     layout: Literal["complex"] = "complex"
     metadata: Metadata | None = None
@@ -204,14 +201,10 @@ class UnknownFile:
     """
     type: Literal[NodeType.File] = NodeType.File
     content: bytes | None = None
-    parts: tuple[FileLink, ...] | None = None
+    parts: Sequence[FileLink] | None = None
     metadata: Metadata | None = None
 
 
-Directory: TypeAlias = "FlatDirectory | ShardedDirectory"
-"""
-Type for either UnixFS directory representation
-"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +212,7 @@ class FlatDirectory:
     """
     Logical Representation of a directory that fits a single block
     """
-    entries: tuple["DirectoryEntryLink", ...]
+    entries: Sequence["DirectoryEntryLink"]
     type: Literal[NodeType.Directory] = NodeType.Directory
     metadata: Metadata | None = None
 
@@ -229,9 +222,7 @@ class NamedDAGLink(DAGLink[T]):
     name: str
 
 
-DirectoryEntryLink: TypeAlias = NamedDAGLink[File] | NamedDAGLink[Directory] | NamedDAGLink[bytes]
 
-DirectoryLink: TypeAlias = DAGLink[Directory]
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +244,7 @@ class DirectoryShard:
     bitfield: bytes
     fanout: int
     hash_type: int
-    entries: tuple["ShardedDirectoryLink", ...]
+    entries: Sequence["ShardedDirectoryLink"]
     type: Literal[NodeType.HAMTShard] = NodeType.HAMTShard
     metadata: Metadata | None = None
 
@@ -270,7 +261,6 @@ class ShardedDirectory(DirectoryShard):
     pass
 
 
-ShardedDirectoryLink: TypeAlias = NamedDAGLink[File] | NamedDAGLink[bytes] | NamedDAGLink[Directory] | NamedDAGLink[DirectoryShard]
 
 
 
@@ -343,3 +333,19 @@ class MTime:
 class Block:
     cid: CID
     bytes: bytes
+
+
+Directory: TypeAlias = FlatDirectory | ShardedDirectory
+"""
+Type for either UnixFS directory representation
+"""
+
+DirectoryLink: TypeAlias = DAGLink[Directory]
+
+Node: TypeAlias = Raw | SimpleFile | AdvancedFile | ComplexFile | Directory | DirectoryShard | ShardedDirectory | Symlink
+
+File: TypeAlias = SimpleFile | AdvancedFile | ComplexFile
+
+DirectoryEntryLink: TypeAlias = NamedDAGLink[File] | NamedDAGLink[Directory] | NamedDAGLink[bytes]
+
+ShardedDirectoryLink: TypeAlias = NamedDAGLink[File] | NamedDAGLink[bytes] | NamedDAGLink[Directory] | NamedDAGLink[DirectoryShard]
