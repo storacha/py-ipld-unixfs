@@ -1,4 +1,9 @@
+import pytest
+
 from ipld_unixfs import codec, unixfs
+
+from . import fixtures as blocks
+
 MURMUR = 0x22
 
 class TestUnixfsFormat:
@@ -181,3 +186,130 @@ class TestUnixfsFormat:
         assert codec.decode(block) == unixfs.SimpleFile(
             type=unixfs.NodeType.File, layout="simple", metadata=unixfs.Metadata(mtime=mtime), content="mtime".encode()
         )
+
+    def test_mtime_without_nsecs(self):
+        block = codec.encode(
+            node=unixfs.SimpleFile(
+                content="mtime".encode(),
+                metadata=unixfs.Metadata(mtime=unixfs.MTime(secs=5, nsecs=0))
+            )
+        )
+
+        assert codec.decode(block) == unixfs.SimpleFile(
+            content="mtime".encode(), metadata=unixfs.Metadata(mtime=unixfs.MTime(secs=5, nsecs=0))
+        )
+
+    def test_does_not_overwrite_known_mode_bits(self):
+        mode = 0xfffffff  # larger than currently defined mode bits
+
+        block = codec.encode(
+            node=unixfs.SimpleFile(
+                content="bits".encode(), metadata=unixfs.Metadata(mode=mode)
+            )
+        )
+
+        node = codec.decode(block)
+        assert node, unixfs.SimpleFile(
+            content="bits".encode(), metadata=unixfs.Metadata(mode=mode)
+        )
+
+    def test_empty(self):
+        block = codec.encode(node=unixfs.SimpleFile(content=bytes()))
+
+        expected = bytes([0x08, 0x02, 0x18, 0x00])
+        assert block.tobytes()[2:] == expected
+
+    def test_symlink(self):
+        block = codec.encode(
+            node=unixfs.Symlink(content="file.txt".encode())
+        )
+
+        assert codec.decode(block) == unixfs.Symlink(content="file.txt".encode(), metadata=unixfs.Metadata())
+
+    def test_symlink_may_have_mode(self):
+        block = codec.encode(
+            node=unixfs.Symlink(
+                content="file.txt".encode(),
+                metadata=unixfs.Metadata(mode=0o664)
+            )
+        )
+
+        assert codec.decode(block) == unixfs.Symlink(
+            content="file.txt".encode(), metadata=unixfs.Metadata(mode=0o664)
+        )
+
+    def test_symlink_omit_default_mode(self):
+        block = codec.encode(
+            node=unixfs.Symlink(
+                content="file.txt".encode(), metadata=unixfs.Metadata(mode=0o644)
+            )
+        )
+
+        assert codec.decode(block) == unixfs.Symlink(
+            content="file.txt".encode(), metadata=unixfs.Metadata()
+        )
+
+    def test_symlink_with_mtime_secs(self):
+        block = codec.encode(
+            node=unixfs.Symlink(
+                content="file.txt".encode(),
+                metadata=unixfs.Metadata(mtime=unixfs.MTime(secs=5))
+            )
+        )
+
+        assert codec.decode(block) == unixfs.Symlink(
+            content="file.txt".encode(),
+            metadata=unixfs.Metadata(mtime=unixfs.MTime(secs=5, nsecs=0))
+        )
+
+    def test_symlink_with_mtime_nsecs(self):
+        block = codec.encode(
+            node=unixfs.Symlink(
+                content="file.txt".encode(),
+                metadata=unixfs.Metadata(mtime=unixfs.MTime(secs=5, nsecs=7))
+            )
+        )
+
+        assert codec.decode(block) == unixfs.Symlink(
+            content="file.txt".encode(),
+            metadata=unixfs.Metadata(mtime=unixfs.MTime(secs=5, nsecs=7))
+        )
+
+
+class TestFormatNuances:
+    def test_raw_with_no_content(self):
+        encoded_bytes = codec.encode(codec.create_raw(content=bytes()))
+        assert bytearray(encoded_bytes) == blocks.Qmdsf68UUYTSSx3i4GtDJfxzpAEZt7Mp23m3qa36LYMSiW
+
+    def test_file_with_no_content(self):
+        encoded_bytes = codec.encode_simple_file(content=bytes())
+        assert encoded_bytes == blocks.QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH
+
+    def test_empty_flat_dir(self):
+        encoded_bytes = codec.encode(codec.create_flat_directory(entries=[]))
+        assert encoded_bytes == blocks.QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn
+
+    def test_empty_sharded_dir(self):
+        with pytest.raises(ValueError, match=".*power of two instead got 3"):
+            codec.create_sharded_directory(
+                entries=[], bitfield=bytes(), fanout=3, hash_type=0x22
+            )
+
+        with pytest.raises(ValueError, match=".*integer value instead got 0.2"):
+            codec.create_sharded_directory(
+                entries=[], bitfield=bytes(), fanout=16, hash_type=0.2
+            )
+
+        # note if you create a block like /ipfs/Qme1Cyu7ujqn3dRkRGmeTLpHJgbGHFjKmud48XK5W8qA6h
+        # go-ipfs will say only murmur3 supported as hash function
+
+        encoded_bytes = codec.encode(
+            codec.create_sharded_directory(
+                entries=[], bitfield=bytes(), fanout=256, hash_type=0x22
+            )
+        )
+        assert encoded_bytes == blocks.Qma5kEnM5fEKTXrFC5zXYRy5QG3hcMWopoFS7ijhxx19qc
+
+    def test_symlink(self):
+        encoded_bytes = codec.encode(codec.create_symlink(path="hi".encode()))
+        assert encoded_bytes == blocks.QmPZ1CTc5fYErTH2XXDGrfsPsHicYXtkZeVojGycwAfm3v

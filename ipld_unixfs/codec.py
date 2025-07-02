@@ -33,7 +33,6 @@ def encode_pb(data: Data, links: list[ipld_dag_pb.PBLink]) -> memoryview:
 
 
 def create_raw(content: bytes) -> unixfs.Raw:
-    print("DEBUG: Creating RAW")
     return unixfs.Raw(content)
 
 
@@ -93,7 +92,7 @@ def create_complex_file(
 
 def create_flat_directory(
     entries: Sequence[unixfs.DirectoryEntryLink],
-    metadata: unixfs.Metadata | None
+    metadata: unixfs.Metadata | None = BLANK
 ) -> unixfs.FlatDirectory:
     return unixfs.FlatDirectory(
         type=unixfs.NodeType.Directory,
@@ -112,8 +111,8 @@ def create_sharded_directory(
     return unixfs.ShardedDirectory(
         type=unixfs.NodeType.HAMTShard,
         bitfield=bitfield,
-        fanout=fanout,
-        hash_type=hash_type,
+        fanout=read_fanout(fanout),
+        hash_type=read_int(hash_type),
         entries=tuple(entries),
         metadata=decode_metadata(metadata)
     )
@@ -128,8 +127,8 @@ def create_directory_shard(
     return unixfs.DirectoryShard(
         type=unixfs.NodeType.HAMTShard,
         bitfield=bitfield,
-        fanout=fanout,
-        hash_type=hash_type,
+        fanout=read_fanout(fanout),
+        hash_type=read_int(hash_type),
         entries=tuple(entries)
     )
 
@@ -172,18 +171,16 @@ def encode_mode(
     specified_mode: int | None, default_mode: int | None
 ) -> unixfs.Mode | None:
     mode = None
-    print(f"DEBUG: SPECIFIED MODE: {specified_mode}")
     if specified_mode is not None:
         mode = decode_mode(specified_mode)
 
-    print(f"DEBUG: SPECIFIED MODE: {specified_mode}")
-    return (None if (mode == default_mode) or (mode is None) else mode)
+    mode = (None if (mode == default_mode) or (mode is None) else mode)
+    return mode
 
 
 def encode_metadata(
     metadata: unixfs.Metadata, default_mode: unixfs.Mode | None = DEFAULT_FILE_MODE
 ) -> unixfs.Metadata:
-    print(f"DEBUG: ENCODING METADATA: {metadata}")
     return unixfs.Metadata(
         mode=(
             encode_mode(metadata.mode, default_mode)
@@ -196,11 +193,8 @@ def encode_metadata(
 def encode_simple_file(
     content: bytes, metadata: unixfs.Metadata = BLANK
 ) -> memoryview:
-    print(f"SimpleFile metadata: {metadata}")
     metadata = encode_metadata(metadata=(metadata or BLANK))
-    print(f"SimpleFile metadata: {metadata}")
 
-    print(f"SimpleFile content: {content}")
 
     data = Data(
         Type=Data.DataType.File,
@@ -223,7 +217,6 @@ def encode_simple_file(
             mtime.FractionalNanoseconds = metadata.mtime.nsecs
         data.mtime.CopyFrom(mtime)
 
-    print(f"Simple File before encode_pb: {data.__str__()}")
     return encode_pb(data=data, links=[])
 
 
@@ -248,9 +241,9 @@ def encode_advanced_file(
     if metadata.mtime is not None:
         # keep secs even if 0; include nsecs when truthy
         mtime = UnixTime(Seconds=metadata.mtime.secs)
-        if metadata.mtime.nsecs:
+        if metadata.mtime.nsecs is not None:  # ensures if nsecs is included even if it's 0
             mtime.FractionalNanoseconds = metadata.mtime.nsecs
-        data.mtime = mtime
+        data.mtime.CopyFrom(mtime)
 
     return encode_pb(data=data, links=[encode_link(part) for part in parts])
 
@@ -278,16 +271,11 @@ def encode_file(
             metadata = (node.metadata or BLANK)
 
 
-    print("DEBUG: ENCODING FILE")
-    print(f"DEBUG: METADATA: {node.metadata}")
     if node.layout == "simple":
-        print("DEBUG: ENCODING Simple FILE")
         return encode_simple_file(node.content, metadata)
     elif node.layout == "advanced":
-        print("DEBUG: ENCODING Advanced FILE")
         return encode_advanced_file(node.parts, metadata)
     elif node.layout == "complex":
-        print("DEBUG: ENCODING Complex FILE")
         return encode_complex_file(node.content, node.parts, metadata)
     else:
         raise TypeError(f"File with unknown layout {node.layout} was passed")
@@ -326,8 +314,9 @@ def encode_directory(node: unixfs.FlatDirectory) -> memoryview:
     if metadata.mtime is not None:
         # keep secs even if 0; include nsecs when truthy
         mtime = UnixTime(Seconds=metadata.mtime.secs)
-        if metadata.mtime.nsecs:
+        if metadata.mtime.nsecs is not None:  # ensures if nsecs is included even if it's 0
             mtime.FractionalNanoseconds = metadata.mtime.nsecs
+        data.mtime.CopyFrom(mtime)
 
 
     pb_node = encode_pb(
@@ -377,13 +366,14 @@ def encode_hamt_shard(node: unixfs.ShardedDirectory | unixfs.DirectoryShard) -> 
     if metadata.mtime is not None:
         # keep secs even if 0; include nsecs when truthy
         mtime = UnixTime(Seconds=metadata.mtime.secs)
-        if metadata.mtime.nsecs:
+        if metadata.mtime.nsecs is not None:  # ensures if nsecs is included even if it's 0
             mtime.FractionalNanoseconds = metadata.mtime.nsecs
+        data.mtime.CopyFrom(mtime)
 
     return encode_pb(data, links=[encode_named_link(entry) for entry in node.entries])
 
 
-def create_sym_link(path: bytes, metadata: unixfs.Metadata | None = BLANK) -> unixfs.Symlink:
+def create_symlink(path: bytes, metadata: unixfs.Metadata | None = BLANK) -> unixfs.Symlink:
     return unixfs.Symlink(
         type=unixfs.NodeType.Symlink, content=path, metadata=decode_metadata(metadata)
     )
@@ -410,14 +400,14 @@ def encode_symlink(node: unixfs.Symlink, ignore_metadata: bool = False) -> memor
     if metadata.mtime is not None:
         # keep secs even if 0; include nsecs when truthy
         mtime = UnixTime(Seconds=metadata.mtime.secs)
-        if metadata.mtime.nsecs:
+        if metadata.mtime.nsecs is not None:  # ensures if nsecs is included even if it's 0
             mtime.FractionalNanoseconds = metadata.mtime.nsecs
+        data.mtime.CopyFrom(mtime)
 
     return encode_pb(data=data, links=[])
 
 
 def encode(node: unixfs.Node, root: bool = True) -> memoryview:
-    print(node)
     match node.type:
         case unixfs.NodeType.Raw:
             return encode_raw(node.content)
@@ -438,49 +428,37 @@ def decode(bytes_data: memoryview) -> unixfs.Node:
     message = Data()
     message.ParseFromString(pb.data)
 
-    print(f"DEBUG: METADATA: mode-{message.mode} mtime-{message.mtime.Seconds}:{message.mtime.FractionalNanoseconds}")
 
     metadata = unixfs.Metadata(
         mode=(message.mode if message.mode != 0 else None),
         mtime=decode_mtime(message.mtime if message.HasField("mtime") else None)
     )
-    print(f"DEBUG: METADATA: mode-{message.mode} mtime-{message.mtime.Seconds}:{message.mtime.FractionalNanoseconds}")
 
     links = pb.links
 
 
     match message.Type:
         case Data.DataType.Raw:
-            print("DEBUG: DECODING Raw")
-            print(f"{message.Type}")
             return create_raw(message.Data)
         case Data.DataType.File:
-            print("DEBUG: DECODING File")
             if (len(links) == 0):
-                print("DEBUG: DECODING Simple File")
                 return unixfs.SimpleFile(content=message.Data, metadata=metadata)
             elif (len(message.Data) == 0):
-                print("DEBUG: DECODING Advanced File")
                 return unixfs.AdvancedFile(
                     parts=tuple(decode_file_links(message.blocksizes, links)),
                     metadata=metadata
                 )
             else:
-                print("DEBUG: DECODING Complex File")
                 return unixfs.ComplexFile(
                     content=message.Data,
                     parts=tuple(decode_file_links(message.blocksizes, links))
                 )
         case Data.DataType.Directory:
-            print("DEBUG: DECODING Flat directory")
-            print(f"FLAT DIRECTORY METADATA: {metadata}")
             return create_flat_directory(
                 entries=decode_directory_links(links=links),
                 metadata=metadata
             )
         case Data.DataType.HAMTShard:
-            print("DEBUG: DECODING HAMT Shard")
-            print(f"HAMT Shard METADATA: {metadata}")
             data = message.Data
             return create_sharded_directory(
                 entries=decode_directory_links(links),
@@ -490,8 +468,7 @@ def decode(bytes_data: memoryview) -> unixfs.Node:
                 metadata=metadata
             )
         case Data.DataType.Symlink:
-            print("DEBUG: DECODING Symlink")
-            return create_sym_link(message.Data, metadata)
+            return create_symlink(message.Data, metadata)
         case _:
             raise ValueError(f"Unsupported node type {message.Type}")
 
@@ -508,7 +485,6 @@ def decode_mtime(mtime_pb: UnixTime | None) -> unixfs.MTime | None:
     if mtime_pb is None or mtime_pb.ByteSize() == 0:  # if `mtime` sub-message is absent from pb data
         return None
     nsecs = mtime_pb.FractionalNanoseconds
-    print(f"DEBUG `decode_mtime` - {mtime_pb.Seconds}:{mtime_pb.FractionalNanoseconds}")
     return unixfs.MTime(secs=mtime_pb.Seconds, nsecs=nsecs)
 
 
