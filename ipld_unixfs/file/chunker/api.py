@@ -1,18 +1,15 @@
 from abc import abstractmethod
-from typing import Generic, Literal, Optional, TypeVar, Union
+from typing import Generic, Literal, Optional, Protocol, Sequence, TypeVar, Union
 
 
 T = TypeVar("T")
 
 
-class Chunk:
-    length: int
+class Chunk(Protocol):
     byte_length: int
     byte_offset: int
 
-    @abstractmethod
-    def copy_to(self, target: memoryview, offset: int) -> memoryview:
-        pass
+    def copy_to(self, target: memoryview, offset: int) -> memoryview: ...
 
 
 class ChunkerBase(Generic[T]):
@@ -47,7 +44,7 @@ class ChunkerBase(Generic[T]):
     """
 
     @abstractmethod
-    def cut(self, context: T, buffer: Chunk, end: bool = False) -> list[int]:
+    def cut(self, context: T, buffer: Chunk, end: bool = False) -> Sequence[int]:
         """
         Chunker takes a `context: T` object, `buffer` containing bytes to be
         chunked. Chunker is expected to return a list of chunk byte lengths
