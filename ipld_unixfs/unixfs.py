@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from enum import IntEnum
 from dataclasses import dataclass
-from typing import Generic, Literal, TypeAlias, TypeVar
+from typing import Generic, Literal, Optional, TypeVar, Union
 from multiformats import CID
 
 from gen.unixfs_pb2 import Data
@@ -33,21 +33,21 @@ class SimpleFile:
     content: bytes
     type: Literal[NodeType.File] = NodeType.File
     layout: Literal["simple"] = "simple"
-    metadata: "Metadata | None" = None
+    metadata: Optional["Metadata"] = None
 
     @property
     def filesize(self) -> int:
         return len(self.content)
 
     def encode(self) -> memoryview:
-        from .codec import encode_simple_file
-        return encode_simple_file(content=self.content, metadata=self.metadata)
+        from .codec import encode_simple_file, BLANK
+        return encode_simple_file(content=self.content, metadata=self.metadata or BLANK)
 
 
 @dataclass(frozen=True, slots=True)
 class Metadata:
-    mode: "Mode | None" = None
-    mtime: "MTime | None" = None
+    mode: Optional["Mode"] = None
+    mtime: Optional["MTime"] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +61,7 @@ class AdvancedFile:
     parts: Sequence["FileLink"]
     type: Literal[NodeType.File] = NodeType.File
     layout: Literal["advanced"] = "advanced"
-    metadata: Metadata | None = None
+    metadata: Optional[Metadata] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,10 +122,10 @@ class FileChunk:
     content: bytes
     type: Literal[NodeType.File] = NodeType.File
     layout: Literal["simple"] = "simple"
-    metadata: Metadata | None = None
+    metadata: Optional[Metadata] = None
 
 
-Chunk: TypeAlias = Raw | FileChunk
+Chunk = Union[Raw, FileChunk]
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,7 +170,7 @@ class ContentDAGLink(DAGLink[T]):
     """Total number of bytes in the file."""
 
 
-FileLink: TypeAlias = ContentDAGLink[bytes] | ContentDAGLink[Chunk] | ContentDAGLink[FileShard]
+FileLink = Union[ContentDAGLink[bytes], ContentDAGLink[Chunk], ContentDAGLink[FileShard]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +190,7 @@ class ComplexFile:
     parts: Sequence[FileLink]
     type: Literal[NodeType.File] = NodeType.File
     layout: Literal["complex"] = "complex"
-    metadata: Metadata | None = None
+    metadata: Optional[Metadata] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,9 +200,9 @@ class UnknownFile:
     one of the other definitions
     """
     type: Literal[NodeType.File] = NodeType.File
-    content: bytes | None = None
-    parts: Sequence[FileLink] | None = None
-    metadata: Metadata | None = None
+    content: Optional[bytes] = None
+    parts: Optional[Sequence[FileLink]]= None
+    metadata: Optional[Metadata] = None
 
 
 
@@ -214,15 +214,12 @@ class FlatDirectory:
     """
     entries: Sequence["DirectoryEntryLink"]
     type: Literal[NodeType.Directory] = NodeType.Directory
-    metadata: Metadata | None = None
+    metadata: Optional[Metadata] = None
 
 
 @dataclass(frozen=True, slots=True)
 class NamedDAGLink(DAGLink[T]):
     name: str
-
-
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,7 +243,7 @@ class DirectoryShard:
     hash_type: int
     entries: Sequence["ShardedDirectoryLink"]
     type: Literal[NodeType.HAMTShard] = NodeType.HAMTShard
-    metadata: Metadata | None = None
+    metadata: Optional[Metadata] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,9 +258,6 @@ class ShardedDirectory(DirectoryShard):
     pass
 
 
-
-
-
 @dataclass(frozen=True, slots=True)
 class Symlink:
     """
@@ -275,7 +269,7 @@ class Symlink:
     """
     content: bytes
     type: Literal[NodeType.Symlink] = NodeType.Symlink
-    metadata: Metadata | None = None
+    metadata: Optional[Metadata] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,10 +285,10 @@ class UnixTime:
         [1, 999999999].
     """
     seconds: int
-    fractional_nano_seconds: int | None = None
+    fractional_nano_seconds: Optional[int] = None
 
 
-Mode: TypeAlias = int
+Mode = int
 """
 The mode is for persisting the file permissions in `numeric notation`_ .
 If unspecified this defaults to
@@ -326,7 +320,7 @@ class MTime:
     1970-01-01T00:00:00Z.
     """
     secs: int
-    nsecs: int | None = None
+    nsecs: Optional[int] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,17 +329,17 @@ class Block:
     bytes: bytes
 
 
-Directory: TypeAlias = FlatDirectory | ShardedDirectory
+Directory = Union[FlatDirectory, ShardedDirectory]
 """
 Type for either UnixFS directory representation
 """
 
-DirectoryLink: TypeAlias = DAGLink[Directory]
+DirectoryLink = DAGLink[Directory]
 
-Node: TypeAlias = Raw | SimpleFile | AdvancedFile | ComplexFile | Directory | DirectoryShard | ShardedDirectory | Symlink
+Node = Union[Raw, SimpleFile, AdvancedFile, ComplexFile, Directory, DirectoryShard, ShardedDirectory, Symlink]
 
-File: TypeAlias = SimpleFile | AdvancedFile | ComplexFile
+File = Union[SimpleFile, AdvancedFile, ComplexFile]
 
-DirectoryEntryLink: TypeAlias = NamedDAGLink[File] | NamedDAGLink[Directory] | NamedDAGLink[bytes]
+DirectoryEntryLink = Union[NamedDAGLink[File], NamedDAGLink[Directory], NamedDAGLink[bytes]]
 
-ShardedDirectoryLink: TypeAlias = NamedDAGLink[File] | NamedDAGLink[bytes] | NamedDAGLink[Directory] | NamedDAGLink[DirectoryShard]
+ShardedDirectoryLink = Union[NamedDAGLink[File], NamedDAGLink[bytes], NamedDAGLink[Directory], NamedDAGLink[DirectoryShard]]

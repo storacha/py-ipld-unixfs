@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from logging import getLogger
 from functools import reduce
 import math
+from typing import Optional, Union
 
 import ipld_dag_pb
 from ipld_unixfs import unixfs
@@ -36,12 +37,12 @@ def create_raw(content: bytes) -> unixfs.Raw:
     return unixfs.Raw(content)
 
 
-def create_empty_file(metadata: unixfs.Metadata | None) -> unixfs.SimpleFile:
+def create_empty_file(metadata: Optional[unixfs.Metadata]) -> unixfs.SimpleFile:
     return create_simple_file(content=EMPTY_BUFFER, metadata=metadata)
 
 
 def create_simple_file(
-    content: bytes, metadata: unixfs.Metadata | None
+    content: bytes, metadata: Optional[unixfs.Metadata]
 ) -> unixfs.SimpleFile:
     return unixfs.SimpleFile(
         type=unixfs.NodeType.File,
@@ -79,7 +80,7 @@ def create_file_shard(parts: Sequence[unixfs.FileLink]) -> unixfs.FileShard:
 def create_complex_file(
     content: bytes,
     parts: Sequence[unixfs.FileLink],
-    metadata: unixfs.Metadata | None
+    metadata: Optional[unixfs.Metadata]
 ) -> unixfs.ComplexFile:
     return unixfs.ComplexFile(
         type=unixfs.NodeType.File,
@@ -92,7 +93,7 @@ def create_complex_file(
 
 def create_flat_directory(
     entries: Sequence[unixfs.DirectoryEntryLink],
-    metadata: unixfs.Metadata | None = BLANK
+    metadata: Optional[unixfs.Metadata] = BLANK
 ) -> unixfs.FlatDirectory:
     return unixfs.FlatDirectory(
         type=unixfs.NodeType.Directory,
@@ -106,7 +107,7 @@ def create_sharded_directory(
     bitfield: bytes,
     fanout: int,
     hash_type: int,
-    metadata: unixfs.Metadata | None = BLANK,
+    metadata: Optional[unixfs.Metadata] = BLANK,
 ) -> unixfs.ShardedDirectory:
     return unixfs.ShardedDirectory(
         type=unixfs.NodeType.HAMTShard,
@@ -137,7 +138,7 @@ def decode_mode(mode: unixfs.Mode) -> unixfs.Mode:
     return (mode & 0xfff) | (mode & 0xfffff000)
 
 
-def decode_metadata(data: unixfs.Metadata | None) -> unixfs.Metadata:
+def decode_metadata(data: Optional[unixfs.Metadata]) -> unixfs.Metadata:
     if data is None:
         return unixfs.Metadata()
     return unixfs.Metadata(
@@ -157,7 +158,7 @@ def encode_raw(content: bytes) -> memoryview:
     return encode_pb(data=data, links=[])
 
 
-def encode_mtime(mtime: unixfs.MTime | None) -> unixfs.MTime | None:
+def encode_mtime(mtime: Optional[unixfs.MTime]) -> Optional[unixfs.MTime]:
     if mtime is None:
         return
 
@@ -168,8 +169,8 @@ def encode_mtime(mtime: unixfs.MTime | None) -> unixfs.MTime | None:
 
 
 def encode_mode(
-    specified_mode: int | None, default_mode: int | None
-) -> unixfs.Mode | None:
+    specified_mode: Optional[int], default_mode: Optional[int]
+) -> Optional[unixfs.Mode]:
     mode = None
     if specified_mode is not None:
         mode = decode_mode(specified_mode)
@@ -179,7 +180,7 @@ def encode_mode(
 
 
 def encode_metadata(
-    metadata: unixfs.Metadata, default_mode: unixfs.Mode | None = DEFAULT_FILE_MODE
+    metadata: unixfs.Metadata, default_mode: Optional[unixfs.Mode] = DEFAULT_FILE_MODE
 ) -> unixfs.Metadata:
     return unixfs.Metadata(
         mode=(
@@ -259,7 +260,7 @@ def encode_complex_file(content: bytes, parts: Sequence[unixfs.FileLink], metada
 
 
 def encode_file(
-    node: unixfs.File | unixfs.FileChunk | unixfs.FileShard,
+    node: Union[unixfs.File, unixfs.FileChunk, unixfs.FileShard],
     ignore_metadata: bool = False
 ) -> memoryview:
     metadata = BLANK
@@ -341,14 +342,14 @@ def read_int(n: int) -> int:
         raise ValueError(f"Expected an integer value instead got {n}")
 
 
-def read_data(data: bytes) -> bytes | None:
+def read_data(data: bytes) -> Optional[bytes]:
     if len(data) > 0:
         return data
     else:
         return None
 
 
-def encode_hamt_shard(node: unixfs.ShardedDirectory | unixfs.DirectoryShard) -> memoryview:
+def encode_hamt_shard(node: Union[unixfs.ShardedDirectory, unixfs.DirectoryShard]) -> memoryview:
     metadata = encode_directory_metadata(node.metadata or BLANK)
 
     data = Data(
@@ -373,7 +374,7 @@ def encode_hamt_shard(node: unixfs.ShardedDirectory | unixfs.DirectoryShard) -> 
     return encode_pb(data, links=[encode_named_link(entry) for entry in node.entries])
 
 
-def create_symlink(path: bytes, metadata: unixfs.Metadata | None = BLANK) -> unixfs.Symlink:
+def create_symlink(path: bytes, metadata: Optional[unixfs.Metadata] = BLANK) -> unixfs.Symlink:
     return unixfs.Symlink(
         type=unixfs.NodeType.Symlink, content=path, metadata=decode_metadata(metadata)
     )
@@ -428,14 +429,12 @@ def decode(bytes_data: memoryview) -> unixfs.Node:
     message = Data()
     message.ParseFromString(pb.data)
 
-
     metadata = unixfs.Metadata(
         mode=(message.mode if message.mode != 0 else None),
         mtime=decode_mtime(message.mtime if message.HasField("mtime") else None)
     )
 
     links = pb.links
-
 
     match message.Type:
         case Data.DataType.Raw:
@@ -473,7 +472,7 @@ def decode(bytes_data: memoryview) -> unixfs.Node:
             raise ValueError(f"Unsupported node type {message.Type}")
 
 
-def decode_mtime(mtime_pb: UnixTime | None) -> unixfs.MTime | None:
+def decode_mtime(mtime_pb: Optional[UnixTime]) -> Optional[unixfs.MTime]:
     """
     Convert the optional protobuf sub-message to our dataclass,
     matching js-unixfs semantics.
@@ -488,7 +487,7 @@ def decode_mtime(mtime_pb: UnixTime | None) -> unixfs.MTime | None:
     return unixfs.MTime(secs=mtime_pb.Seconds, nsecs=nsecs)
 
 
-def decode_blocksizes(type: Data.DataType, blocksizes: list[int] | None) -> list[int] | None:
+def decode_blocksizes(type: Data.DataType, blocksizes: Optional[list[int]]) -> Optional[list[int]]:
     match type:
         case Data.DataType.File:
             if blocksizes and len(blocksizes) > 0:
@@ -541,8 +540,8 @@ def cumulative_dag_byte_length(root: bytes, links: Sequence[unixfs.DAGLink]) -> 
 def match_file(
     content: bytes = EMPTY_BUFFER,
     parts: Sequence[unixfs.FileLink] = EMPTY,
-    metadata: unixfs.Metadata | None = BLANK
-) -> unixfs.SimpleFile | unixfs.AdvancedFile | unixfs.ComplexFile:
+    metadata: Optional[unixfs.Metadata] = BLANK
+) -> Union[unixfs.SimpleFile, unixfs.AdvancedFile, unixfs.ComplexFile]:
     if len(parts) == 0:
         return unixfs.SimpleFile(content=content, metadata=metadata)
     elif (len(content) == 0):
