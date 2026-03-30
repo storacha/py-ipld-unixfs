@@ -1,5 +1,5 @@
-from abc import abstractmethod
-from typing import Generic, Literal, Optional, Protocol, Sequence, TypeVar, Union
+from abc import ABC, abstractmethod
+from typing import Generic, Literal, Optional, Protocol, Sequence, TypeAlias, TypeVar, Union
 
 
 T = TypeVar("T")
@@ -12,7 +12,7 @@ class Chunk(Protocol):
     def copy_to(self, target: memoryview, offset: int) -> memoryview: ...
 
 
-class ChunkerBase(Generic[T]):
+class ChunkerBase(ABC, Generic[T]):
     """
     Chunker API can be used to slice up the file content according
     to specific logic. It is designed with following properties in mind:
@@ -73,4 +73,4 @@ class StatelessChunker(ChunkerBase[T]):
     type: Literal["Stateless"]
 
 
-Chunker = Union[StatefulChunker[T], StatelessChunker[T]]
+Chunker: TypeAlias = StatefulChunker[T] | StatelessChunker[T]

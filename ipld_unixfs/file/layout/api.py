@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from typing import Generic, Literal, Optional, Protocol, Sequence, TypeVar, Union
+from typing import Generic, Literal, Optional, Protocol, Sequence, TypeAlias, TypeVar, Union
 from ipld_unixfs.multiformats.codecs.api import BlockEncoder
 from ipld_unixfs.file.chunker.api import Chunk
 from ipld_unixfs.unixfs import Metadata, File, FileLink
 
 Layout = TypeVar("Layout")
 
-NodeID = int
+NodeID: TypeAlias = int
 
 
 @dataclass
@@ -23,7 +23,7 @@ class Leaf:
     metadata: Optional[Metadata]
 
 
-Node = Union[Leaf, Branch]
+Node: TypeAlias = Leaf | Branch
 
 
 @dataclass
@@ -40,10 +40,10 @@ class CloseResult:
     leaves: Sequence[Leaf]
 
 
-PB = Literal[0x70]
-RAW = Literal[0x55]
+PB: TypeAlias = Literal[0x70]
+RAW: TypeAlias = Literal[0x55]
 
-FileChunkEncoder = Union[BlockEncoder[PB, bytes], BlockEncoder[RAW, bytes]]
+FileChunkEncoder: TypeAlias = BlockEncoder[PB, bytes] | BlockEncoder[RAW, bytes]
 
 
 class FileEncoder(Protocol):

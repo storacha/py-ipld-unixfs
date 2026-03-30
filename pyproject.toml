@@ -28,12 +28,20 @@ dependencies = [
     "protobuf",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest"
-]
-
 [project.urls]
 Homepage = "https://github.com/storacha/py-ipld-unixfs"
 Issues = "https://github.com/storacha/py-ipld-unixfs/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0",
+    "pytest-timeout>=2.4.0"
+]
+
+[tool.pytest]
+minversion = "9.0"
+addopts = ["-ra", "-q", "--cov=actress", "--cov-report=html", "--cov-branch"]
+testpaths = ["test"]
+asyncio_mode = "auto"
+timeout = "5"
 

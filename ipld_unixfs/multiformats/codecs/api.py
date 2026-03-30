@@ -1,15 +1,16 @@
 # TODO: PR to multiformats?
 from abc import abstractmethod
-from typing import Generic, TypeVar
+from typing import Generic, Protocol, TypeVar
+import multiformats
 
 
 Code = TypeVar("Code", bound=int)
 """IPLD codec code."""
 
-Data = TypeVar("Data")
+Data = TypeVar("Data", contravariant=True)
 
 
-class BlockEncoder(Generic[Code, Data]):
+class BlockEncoder(Protocol[Code, Data]):
     """
     IPLD encoder part of the codec.
     """
@@ -17,6 +18,4 @@ class BlockEncoder(Generic[Code, Data]):
     name: str
     code: Code
 
-    @abstractmethod
-    def encode(self, data: Data) -> bytes:
-        pass
+    def encode(self, data: Data) -> bytes: ...

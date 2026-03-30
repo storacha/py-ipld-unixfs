@@ -76,11 +76,11 @@ class BufferView:
         """
         return copy_to(self, target, offset)
 
-    def extend(self, bytes: memoryview) -> Self:
+    def extend(self, ext_bytes: memoryview) -> Self:
         """
         Add the specified bytes to the end of the buffer.
         """
-        view = extend(self, bytes)
+        view = extend(self, ext_bytes)
         if not isinstance(view, type(self)):
             raise Exception("extended buffer view is not an instance of buffer view")
         return view
@@ -110,12 +110,12 @@ def get(buffer: BufferSlice, index: int) -> int:
     raise Exception("did not find index in segments")
 
 
-def extend(buffer: BufferSlice, bytes: memoryview) -> BufferView:
+def extend(buffer: BufferSlice, ext_bytes: memoryview) -> BufferView:
     """
     Zero copy extend - adds the specified bytes to the end of the buffer
     returning a new buffer.
     """
-    if len(bytes) == 0:
+    if len(ext_bytes) == 0:
         return (
             buffer
             if isinstance(buffer, BufferView)
@@ -124,9 +124,9 @@ def extend(buffer: BufferSlice, bytes: memoryview) -> BufferView:
             )
         )
     view = BufferView._create(
-        list(buffer.segments), buffer.byte_offset, buffer.byte_length + len(bytes)
+        list(buffer.segments), buffer.byte_offset, buffer.byte_length + len(ext_bytes)
     )
-    view.segments.append(bytes)
+    view.segments.append(ext_bytes)
     return view
 
 
