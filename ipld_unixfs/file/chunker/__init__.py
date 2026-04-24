@@ -1,5 +1,5 @@
 from typing import Generic, Sequence, TypeVar
-from .api import Chunk, Chunker, ChunkerBase, StatefulChunker, StatelessChunker
+from .interfaces import Chunk, Chunker, ChunkerBase, StatefulChunker, StatelessChunker
 from .buffer import BufferView
 
 T = TypeVar("T")
