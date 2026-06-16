@@ -5,19 +5,42 @@ build-backend = "hatchling.build"
 [project]
 name = "ipld_unixfs"
 version = "0.0.1"
-authors = [
-  { name="Alan Shaw", email="alan@storacha.network" },
-]
+authors = [{ name = "Alan Shaw", email = "alan@storacha.network" }]
 description = "An implementation of the UnixFS spec in Python."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
 ]
 license = "Apache-2.0 OR MIT"
 license-files = ["LICENSE.md"]
+dependencies = [
+  "bases",
+  "dag-cbor",
+  "ipld_dag_pb",
+  "multiformats",
+  "multiformats-config",
+  "typing-validation",
+  "typing-extensions",
+  "protobuf",
+  "actress",
+]
 
 [project.urls]
 Homepage = "https://github.com/storacha/py-ipld-unixfs"
 Issues = "https://github.com/storacha/py-ipld-unixfs/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=9.0", "pytest-timeout>=2.4.0", "mypy>=1.19"]
+
+[tool.pytest]
+minversion = "9.0"
+addopts = [
+  "-ra",
+  "-q",
+]
+testpaths = ["test"]
+timeout = "5"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

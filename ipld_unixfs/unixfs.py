@@ -1,73 +1,98 @@
+from collections.abc import Sequence
+from enum import IntEnum
 from dataclasses import dataclass
-from enum import Enum
-from typing import Literal, Optional, Protocol, Sequence, Union
-
+from typing import Generic, Literal, Optional, TypeVar, Union
+from typing_extensions import Buffer
 from multiformats import CID
 
-
-class NodeType(Enum):
-    Raw = 0
-    Directory = 1
-    File = 2
-    Metadata = 3
-    Symlink = 4
-    HAMTShard = 5
+from gen.unixfs_pb2 import Data
 
 
-Mode = int
-"""
-The mode is for persisting the file permissions in [numeric notation].
-If unspecified this defaults to
-- `0755` for directories/HAMT shards
-- `0644` for all other types where applicable
-
-The nine least significant bits represent `ugo-rwx`
-The next three least significant bits represent setuid, setgid and the sticky bit.
-The remaining 20 bits are reserved for future use, and are subject to change.
-
-Spec implementations MUST handle bits they do not expect as follows: 
-- For future-proofing the (de)serialization layer must preserve the entire
-  `uint32` value during clone/copy operations, modifying only bit values that
-  have a well defined meaning:
-  `clonedValue = ( modifiedBits & 07777 ) | ( originalValue & 0xFFFFF000 )`
-- Implementations of this spec MUST proactively mask off bits without a
-  defined meaning in the implemented version of the spec:
-  `interpretedValue = originalValue & 07777`
-
-[numeric notation]:https://en.wikipedia.org/wiki/File-system_permissions#Numeric_notation
-
-@see https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html
-"""
+# Type variable for generic types
+T = TypeVar('T')
 
 
-class MTime:
-    """
-    Representing the modification time in seconds relative to the unix epoch
-    1970-01-01T00:00:00Z.
-    """
-
-    secs: int
-    nsecs: Optional[int]
-
-
-class Metadata:
-    mode: Optional[Mode]
-    mtime: Optional[MTime]
+class NodeType(IntEnum):
+    """Types of UnixFS nodes."""
+    Raw = Data.DataType.Raw
+    Directory = Data.DataType.Directory
+    File = Data.DataType.File
+    Metadata = Data.DataType.Metadata
+    Symlink = Data.DataType.Symlink
+    HAMTShard = Data.DataType.HAMTShard
 
 
+@dataclass(frozen=True, slots=True)
 class SimpleFile:
     """
-    Logical representation of a file that fits a single block. Note this is only
-    semantically different from a `FileChunk` and your interpretation SHOULD
-    vary depending on where you encounter the node (In root of the DAG or not).
+    Logical representation of a file that fits a single block.
+
+    Note this is only semantically different from a `FileChunk` and your 
+    interpretation SHOULD vary depending on where you encounter the node 
+    (In root of the DAG or not).
     """
-
-    metadata: Optional[Metadata]
-    type: Literal[NodeType.File]
-    layout: Literal["simple"]
     content: bytes
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["simple"] = "simple"
+    metadata: Optional["Metadata"] = None
+
+    @property
+    def filesize(self) -> int:
+        return len(self.content)
+
+    def encode(self) -> memoryview:
+        from .codec import encode_simple_file, BLANK
+        return encode_simple_file(content=self.content, metadata=self.metadata or BLANK)
 
 
+@dataclass(frozen=True, slots=True)
+class Metadata:
+    mode: Optional["Mode"] = None
+    mtime: Optional["MTime"] = None
+
+
+@dataclass(frozen=True, slots=True)
+class AdvancedFile:
+    """
+    Logical represenatation of a file that consists of multiple blocks. Note it
+    is only semantically different from a `FileShard` and your interpretation
+    SHOULD vary depending on where you encounter the node (In root of the DAG
+    or not).
+    """
+    parts: Sequence["FileLink"]
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["advanced"] = "advanced"
+    metadata: Optional[Metadata] = None
+
+
+@dataclass(frozen=True, slots=True)
+class Raw:
+    """
+    Represents a UnixFS Raw node (a leaf node of the file DAG layout).
+
+    This representation has been subsumed by `FileChunk` representation and
+    is therefore marked as deprecated.
+
+    UnixFS consumers are very likely to encounter nodes of this type, as of this
+    writing JS & Go implementations can be configured to produce these nodes,
+    in trickle DAG use this configuration.
+
+    UnixFS producers are RECOMMENDED to either use `FileChunk` representation or
+    better yet raw binary nodes (That is 0x55 multicodec) which will likely
+    replace them in the future.
+
+    See: https://github.com/multiformats/multicodec/blob/master/table.csv#L39
+
+    Please note that in the wild Raw nodes are likely to come with other fields
+    encoded but both encoder and decoder presented here will ignore them.
+
+    Deprecated: Use FileChunk or raw binary nodes instead.
+    """
+    content: bytes
+    type: Literal[NodeType.Raw] = NodeType.Raw  # This enforces the type at runtime
+
+
+@dataclass(frozen=True, slots=True)
 class FileChunk:
     """
     Logical representation of a file chunk (a leaf node of the file DAG layout).
@@ -81,84 +106,244 @@ class FileChunk:
 
     Please note that in protobuf representation there is only one `file` node
     type with many optional fields, however different combination of fields
-    corresponds to a different semntaics and we represent each via different
+    corresponds to a different semantics and we represent each via different
     type.
 
     Also note that some file nodes may also have `mode` and `mtime` fields,
     which we represent via `SimpleFile` type, however in practice the two are
     indistinguishable & how to interpret will only depend on whether the node is
     encountered in DAG root position or not. That is because one could take two
-    `SimpleFile` nodes and represent their concatination via `AdvancedFile`
+    `SimpleFile` nodes and represent their concatenation via `AdvancedFile`
     simply by linking to them. In such scenario consumer SHOULD treat leaves as
     `FileChunk`s and ignoring their `mode` and `mtime` fileds. However if those
     leaves are encountered on their own consumer SHOULD treat them as
     `SimpleFile`s and take `mode` and `mtime` fields into account.
     """
 
-    metadata: Optional[Metadata]
-    type: Literal[NodeType.File]
-    layout: Literal["simple"]
     content: bytes
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["simple"] = "simple"
+    metadata: Optional[Metadata] = None
 
 
-@dataclass
-class DAGLink:
+Chunk = Union[Raw, FileChunk]
+
+
+@dataclass(frozen=True, slots=True)
+class FileShard:
+    """
+    Logical representation of a file shard. When large files are chunked
+    *slices* that span multiple blocks may be represented via file shards in
+    certain DAG layouts (e.g. balanced & trickle DAGs).
+
+    Please note in protobuf representation there is only one `file` node type
+    with many optional fields. Different combination of those fields corresponds
+    to a different semantics. Combination of fields in this type represent a
+    branch nodes in the file DAGs in which nodes beside leaves and root exist.
+
+    Also note that you may encounter `FileShard`s with `mode` and `mtime` fields
+    which according to our definition would be `AdvancedFile`. However just as
+    with `FileChunk` / `SimpleFile`, here as well, you should treat node as
+    `AdvancedFile` if you encounter it in the root position (that is to say
+    regard `mode`, `mtime` field) and treat it as `FileShard` node if encountered
+    in any other position (that is ignore `mode`, `mtime` fileds).
+    """
+    parts: Sequence["FileLink"]
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["advanced"] = "advanced"
+
+
+@dataclass(frozen=True, slots=True)
+class DAGLink(Generic[T]):
     cid: CID
     """*C*ontent *Id*entifier of the target DAG."""
 
-    dagByteLength: int
+    dag_byte_length: int
     """
     Cumulative number of bytes in the target DAG, that is number of bytes in the
     block and all the blocks it links to.
     """
 
 
-@dataclass
-class ContentDAGLink(DAGLink):
-    contentByteLength: int
+@dataclass(frozen=True, slots=True)
+class ContentDAGLink(DAGLink[T]):
+    content_byte_length: int
     """Total number of bytes in the file."""
 
 
-FileLink = ContentDAGLink
+# FileLink = Union[ContentDAGLink[bytes], ContentDAGLink[Chunk], ContentDAGLink[FileShard]]
+
+class FileLink(ContentDAGLink[bytes | Chunk | FileShard]):
+    pass
 
 
-class FileShard:
+@dataclass(frozen=True, slots=True)
+class ComplexFile:
     """
-    Logical representation of a file shard. When large files are chunked,
-    slices that span multiple blocks may be represented as file shards in
-    certain DAG layouts (e.g. balanced & trickle DAGs).
+    These type of nodes are not produces by reference IPFS implementations, yet
+    such file nodes could be represented and therefore defined with this type.
 
-    Please note in protobuf representation there is only one `file` node type
-    with many optional fields. Different combinations of those fields
-    correspond to a different semantics. The combination of fields in this type
-    represent branch nodes in the file DAGs in which nodes beside leaves and
-    root exist.
+    In this file representation first chunk of the file is represented by a
+    `data` field while rest of the file is represented by links.
 
-    Also note that you may encounter `FileShard`s with `mode` and `mtime` fields
-    which, according to our definition would be `AdvancedFile`. However just as
-    with `FileChunk` / `SimpleFile`, here as well, you should treat node as
-    `AdvancedFile` if you encounter it in the root position (that is to say
-    regard `mode`, `mtime` field) and treat it as `FileShard` node if
-    encountered in any other position (that is ignore `mode`, `mtime` fileds).
+    It is NOT RECOMMENDED to use this representation (which is why it's marked
+    deprecated), however it is still valid representation and UnixFS consumers
+    SHOULD recognize it and interpret as described.
     """
-
-    type: Literal[NodeType.File]
-    layout: Literal["advanced"]
+    content: bytes
     parts: Sequence[FileLink]
+    type: Literal[NodeType.File] = NodeType.File
+    layout: Literal["complex"] = "complex"
+    metadata: Optional[Metadata] = None
 
 
-class AdvancedFile:
+@dataclass(frozen=True, slots=True)
+class UnknownFile:
     """
-    Logical represenatation of a file that consists of multiple blocks. Note it
-    is only semantically different from a `FileShard` and your interpretation
-    SHOULD vary depending on where you encounter the node (In root of the DAG
-    or not).
+    This is a utility type that represents any kind of file which is then refined to
+    one of the other definitions
     """
+    type: Literal[NodeType.File] = NodeType.File
+    content: Optional[bytes] = None
+    parts: Optional[Sequence[FileLink]]= None
+    metadata: Optional[Metadata] = None
 
-    metadata: Optional[Metadata]
-    type: Literal[NodeType.File]
-    layout: Literal["advanced"]
-    parts: Sequence[FileLink]
 
 
-File = Union[SimpleFile, AdvancedFile]
+
+@dataclass(frozen=True, slots=True)
+class FlatDirectory:
+    """
+    Logical Representation of a directory that fits a single block
+    """
+    entries: Sequence["DirectoryEntryLink"]
+    type: Literal[NodeType.Directory] = NodeType.Directory
+    metadata: Optional[Metadata] = None
+
+
+@dataclass(frozen=True, slots=True)
+class NamedDAGLink(DAGLink[T]):
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class DirectoryShard:
+    """
+    Logical represenatation of the shard of the sharded directory. Please note
+    that it only semantically different from `AdvancedDirectoryLayout`, in
+    practice they are the same and interpretation should vary based on view. If
+    viewed from the root position it is `AdvancedDirectoryLayout` and it's `mtime`
+    `mode` field to be respected, otherwise it is `DirectoryShard` and it's
+    `mtime` and `mode` field to be ignored. It's the directory equivalent of
+    `FileShard`.
+
+    :param bitfield: HAMT table width (In IPFS it's usually 256)
+
+    :param fanout: Multihash code for the hashing function used (In IPFS it's `murmur3-64`_ )
+        .. _murmur3-64: https://github.com/multiformats/multicodec/blob/master/table.csv#L24
+    """
+    bitfield: bytes
+    fanout: int
+    hash_type: int
+    entries: Sequence["ShardedDirectoryLink"]
+    type: Literal[NodeType.HAMTShard] = NodeType.HAMTShard
+    metadata: Optional[Metadata] = None
+
+
+@dataclass(frozen=True, slots=True)
+class ShardedDirectory(DirectoryShard):
+    """
+    Logical representation of directory encoded in multiple blocks (usually when
+    it contains large number of entries). Such directories are represented via
+    Hash Array Map Tries (HAMT).
+
+    See: https://en.wikipedia.org/wiki/Hash_array_mapped_trie
+    """
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class Symlink:
+    """
+    Logical representation of a `symbolic link`_.
+
+    .. _symbolic link: https://en.wikipedia.org/wiki/Symbolic_link
+
+    :param content: UTF-8 encoded path to the symlink target
+    """
+    content: bytes
+    type: Literal[NodeType.Symlink] = NodeType.Symlink
+    metadata: Optional[Metadata] = None
+
+
+@dataclass(frozen=True, slots=True)
+class UnixTime:
+    """Representing the modification time in seconds relative to the unix epoch
+    1970-01-01T00:00:00Z.
+
+    :param seconds: (signed 64bit integer): represents the amount of seconds 
+        after or before the epoch.
+    :param fractional_nano_seconds: (optional, 32bit unsigned integer): when 
+        specified represents the fractional part of the mtime as the amount 
+        of nanoseconds. The valid range for this value are the integers 
+        [1, 999999999].
+    """
+    seconds: int
+    fractional_nano_seconds: Optional[int] = None
+
+
+Mode = int
+"""
+The mode is for persisting the file permissions in `numeric notation`_ .
+If unspecified this defaults to
+- `0755` for directories/HAMT shards
+- `0644` for all other types where applicable
+
+The nine least significant bits represent `ugo-rwx`
+The next three least significant bits represent setuid, setgid and the sticky bit.
+The remaining 20 bits are reserved for future use, and are subject to change.
+Spec implementations MUST handle bits they do not expect as follows: 
+- For future-proofing the (de)serialization layer must preserve the entire
+  `uint32` value during clone/copy operations, modifying only bit values that
+   have a well defined meaning:
+   `clonedValue = ( modifiedBits & 07777 ) | ( originalValue & 0xFFFFF000 )`
+- Implementations of this spec MUST proactively mask off bits without a
+  defined meaning in the implemented version of the spec:
+  `interpretedValue = originalValue & 07777`
+
+
+.. _numeric notation: https://en.wikipedia.org/wiki/File-system_permissions#Numeric_notation
+
+See: https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_stat.h.html
+"""
+
+@dataclass(frozen=True, slots=True)
+class MTime:
+    """
+    Represents modification time in seconds relative to the unix epoch
+    1970-01-01T00:00:00Z.
+    """
+    secs: int
+    nsecs: Optional[int] = None
+
+
+@dataclass(frozen=True, slots=True)
+class Block:
+    cid: CID
+    bytes: Buffer
+
+
+Directory = Union[FlatDirectory, ShardedDirectory]
+"""
+Type for either UnixFS directory representation
+"""
+
+DirectoryLink = DAGLink[Directory]
+
+Node = Union[Raw, SimpleFile, AdvancedFile, ComplexFile, Directory, DirectoryShard, ShardedDirectory, Symlink]
+
+File = Union[SimpleFile, AdvancedFile, ComplexFile]
+
+DirectoryEntryLink = Union[NamedDAGLink[File], NamedDAGLink[Directory], NamedDAGLink[bytes]]
+
+ShardedDirectoryLink = Union[NamedDAGLink[File], NamedDAGLink[bytes], NamedDAGLink[Directory], NamedDAGLink[DirectoryShard]]

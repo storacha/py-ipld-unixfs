@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Mapping, MutableMapping, MutableSequence, Optional, Sequence, Union
-from ipld_unixfs.file.layout.api import NodeID
+from ipld_unixfs.file.layout.interfaces import NodeID
 from ipld_unixfs.unixfs import FileLink as FileLink
 
 

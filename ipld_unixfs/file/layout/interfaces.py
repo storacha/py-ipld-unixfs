@@ -1,12 +1,17 @@
 from dataclasses import dataclass
-from typing import Generic, Literal, Optional, Protocol, Sequence, TypeVar, Union
-from ipld_unixfs.multiformats.codecs.api import BlockEncoder
-from ipld_unixfs.file.chunker.api import Chunk
-from ipld_unixfs.unixfs import Metadata, File, FileLink
+from typing import Generic, Literal, Optional, Protocol, Sequence, TypeAlias, TypeVar
+from ipld_unixfs.multiformats.codecs.interface import BlockEncoder
+from ipld_unixfs.file.chunker.interfaces import Chunk
+from ipld_unixfs.unixfs import Metadata, File
 
-Layout = TypeVar("Layout")
+T = TypeVar("T")
+LayoutT = TypeVar("LayoutT")
 
-NodeID = int
+
+class ID(int, Generic[T]):
+    pass
+
+NodeID: TypeAlias = ID["Node"]
 
 
 @dataclass
@@ -21,14 +26,15 @@ class Leaf:
     id: NodeID
     content: Optional[Chunk]
     metadata: Optional[Metadata]
+    children: Optional[NodeID] = None
 
 
-Node = Union[Leaf, Branch]
+Node: TypeAlias = Leaf | Branch
 
 
 @dataclass
-class WriteResult(Generic[Layout]):
-    layout: Layout
+class WriteResult(Generic[LayoutT]):
+    layout: LayoutT
     nodes: Sequence[Branch]
     leaves: Sequence[Leaf]
 
@@ -40,10 +46,10 @@ class CloseResult:
     leaves: Sequence[Leaf]
 
 
-PB = Literal[0x70]
-RAW = Literal[0x55]
+PB: TypeAlias = Literal[0x70]
+RAW: TypeAlias = Literal[0x55]
 
-FileChunkEncoder = Union[BlockEncoder[PB, bytes], BlockEncoder[RAW, bytes]]
+FileChunkEncoder: TypeAlias = BlockEncoder[PB, bytes] | BlockEncoder[RAW, bytes]
 
 
 class FileEncoder(Protocol):
@@ -52,8 +58,8 @@ class FileEncoder(Protocol):
     def encode(self, file: File) -> bytes: ...
 
 
-class LayoutEngine(Protocol, Generic[Layout]):
-    def open(self) -> Layout:
+class LayoutEngine(Protocol, Generic[LayoutT]):
+    def open(self) -> LayoutT:
         """
         When new file is imported importer will call file builders `open`
         function. Here layout implementation can initialize implementation
@@ -64,9 +70,9 @@ class LayoutEngine(Protocol, Generic[Layout]):
         """
         ...
 
-    def write(self, layout: Layout, chunks: Sequence[Chunk]) -> WriteResult[Layout]:
+    def write(self, layout: LayoutT, chunks: Sequence[Chunk]) -> WriteResult[LayoutT]:
         """
-        Importer takes care reading file content chunking it. Afet it produces
+        Importer takes care reading file content chunking it. After it produces
         some chunks it will pass those via `write` call along with current
         layout a state (which was returned by `open` or previous `write` calls).
 
@@ -74,11 +80,11 @@ class LayoutEngine(Protocol, Generic[Layout]):
         along with all the leaf and branch nodes it created as a result.
 
         Note: Layout engine should not hold reference to chunks or nodes to
-        avoid unecessary memory use.
+        avoid unnecessary memory use.
         """
         ...
 
-    def close(self, layout: Layout, metadata: Optional[Metadata] = None) -> CloseResult:
+    def close(self, layout: LayoutT, metadata: Optional[Metadata] = None) -> CloseResult:
         """
         After importer wrote all the chunks through `write` calls it will call
         `close` so that layout engine can produce all the remaining nodes along

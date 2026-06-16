@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence
-from ipld_unixfs.file.chunker.api import Chunk
-from ipld_unixfs.file.layout.api import (
+from ipld_unixfs.file.chunker.interfaces import Chunk
+from ipld_unixfs.file.layout.interfaces import (
     Branch,
     CloseResult,
     LayoutEngine,

@@ -1,5 +1,6 @@
 bases==0.3.0
 dag-cbor==0.3.3
+ipld_dag_pb==0.0.1
 multiformats==0.3.1.post4
 multiformats-config==0.3.1
 typing-validation==1.2.11.post4

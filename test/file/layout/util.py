@@ -4,12 +4,13 @@ from typing import Sequence, TypeVar
 from multiformats import CID, multihash
 from ipld_unixfs.file.layout.api import NodeID
 from ipld_unixfs.file.layout.queue.api import FileLink, LinkedNode
+from ipld_unixfs.unixfs import ContentDAGLink
 
 
-def create_link(name: str, size: int = 120, dag_size: int = -1) -> FileLink:
+def create_link(name: str, size: int = 120, dag_size: int = -1) -> ContentDAGLink:
     if dag_size == -1:
         dag_size = math.floor(size + (size * 15) / 100)
-    return FileLink(create_cid(name), dag_size, size)
+    return ContentDAGLink(create_cid(name), dag_size, size)
 
 
 def create_cid(name: str) -> CID:
