@@ -8,7 +8,7 @@ version = "0.0.1"
 authors = [{ name = "Alan Shaw", email = "alan@storacha.network" }]
 description = "An implementation of the UnixFS spec in Python."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: OS Independent",
@@ -39,10 +39,8 @@ minversion = "9.0"
 addopts = [
   "-ra",
   "-q",
-  "--cov=ipld_unixfs",
-  "--cov-report=html",
-  "--cov-branch",
 ]
 testpaths = ["test"]
-asyncio_mode = "auto"
 timeout = "5"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

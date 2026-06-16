@@ -154,7 +154,7 @@ def encode_raw(content: bytes) -> memoryview:
         blocksizes=EMPTY,
     )
     if len(content) > 0:
-        data.Data = content
+        data.Data = bytes(content)
     return encode_pb(data=data, links=[])
 
 
@@ -207,7 +207,7 @@ def encode_simple_file(
         # adding an empty file to both the go-ipfs and js-ipfs produces block in
         # which `Data` is omitted but filesize and blocksizes are present.
         # For the sake of hash consistency we do the same.
-        data.Data=content
+        data.Data=bytes(content)
 
     if metadata.mode is not None:
         data.mode = metadata.mode
@@ -252,7 +252,7 @@ def encode_advanced_file(
 def encode_complex_file(content: bytes, parts: Sequence[unixfs.FileLink], metadata: unixfs.Metadata = BLANK) -> memoryview:
     data = Data(
         Type=Data.DataType.File,
-        Data=content,
+        Data=bytes(content),
         filesize=len(content) + cumulative_content_byte_length(parts),
         blocksizes=[part.content_byte_length for part in parts],
     )
@@ -359,7 +359,7 @@ def encode_hamt_shard(node: Union[unixfs.ShardedDirectory, unixfs.DirectoryShard
     )
 
     if len(node.bitfield) > 0:
-        data.Data=node.bitfield
+        data.Data=bytes(node.bitfield)
 
     if metadata.mode is not None:
         data.mode = metadata.mode
@@ -393,7 +393,7 @@ def encode_symlink(node: unixfs.Symlink, ignore_metadata: bool = False) -> memor
 
     data=Data(
         Type=Data.DataType.Symlink,
-        Data=node.content,
+        Data=bytes(node.content),
     )
 
     if metadata.mode is not None:

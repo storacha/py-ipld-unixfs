@@ -1,48 +1,53 @@
-from typing import Generic, Sequence, TypeVar
-from .interfaces import Chunk, Chunker, ChunkerBase, StatefulChunker, StatelessChunker
-from .buffer import BufferView
+from typing import Generic, TypeVar
+from dataclasses import dataclass
+
+from . import interfaces as ChunkerAPI, buffer as BufferQueue
+from ipld_unixfs.writer.utils import EMPTY
+
 
 T = TypeVar("T")
 
-
-class State(Generic[T]):
-    chunker: Chunker[T]
-    buffer: BufferView
-    chunks: Sequence[Chunk]
-
-    def __init__(
-        self, chunker: Chunker[T], buffer: BufferView, chunks: Sequence[Chunk]
-    ) -> None:
-        self.buffer = buffer
-        self.chunker = chunker
-        self.chunks = chunks
+@dataclass
+class Config(Generic[T]):
+    chunker: ChunkerAPI.Chunker[T]
 
 
-def open(chunker: Chunker[T]) -> State[T]:
-    return State(chunker, BufferView(), [])
+@dataclass
+class Chunker(Generic[T]):
+    buffer: BufferQueue.BufferView
+    config: Config[T]
 
 
-def write(state: State[T], buf: memoryview) -> State[T]:
-    if len(buf) > 0:
-        return split(state.chunker, state.buffer, False)
+@dataclass
+class ChunkerWithChunks(Chunker[T]):
+    chunks: list[ChunkerAPI.Chunk]
+
+
+def open(config: Config[T]) -> Chunker[T]:
+    return Chunker(buffer=BufferQueue.empty(), config=config)
+
+
+def write(state: Chunker[T], bytes_data: bytes) -> ChunkerWithChunks[T]:
+    if len(bytes_data) > 0:
+        return split(state.config, state.buffer.push(memoryview(bytes_data)), False)
     else:
-        return State(state.chunker, state.buffer, [])
+        return ChunkerWithChunks(buffer=state.buffer, config=state.config, chunks=EMPTY)
+
+def close(state: Chunker[T]) -> ChunkerWithChunks[T]:
+    return split(state.config, buffer=state.buffer, end=True)
 
 
-def close(state: State[T]) -> State[T]:
-    return split(state.chunker, state.buffer, True)
-
-
-def split(chunker: Chunker[T], buffer: BufferView, end: bool) -> State[T]:
-    chunks: list[Chunk] = []
+def split(config: Config[T], buffer: BufferQueue.BufferView, end: bool) -> ChunkerWithChunks[T]:
+    chunker = config.chunker
+    chunks: list[ChunkerAPI.Chunk] = []
 
     offset = 0
     for size in chunker.cut(chunker.context, buffer, end):
-        # We may be splitting empty buffer in which case there will be no chunks
-        # in it so we make sure that we do not emit empty buffer.
+        # we may be splitting an empty buffer, in this case there will be no
+        # chunks in it so we make sure that we do not emit empty buffer
         if size > 0:
-            chunk = buffer[offset : offset + size]
+            chunk = buffer[offset:offset + size]
             chunks.append(chunk)
             offset += size
 
-    return State(chunker, buffer[offset:], chunks)
+    return ChunkerWithChunks(config=config, buffer=buffer[offset:], chunks=chunks)

@@ -50,6 +50,9 @@ class BufferView:
                 return False
         return True
 
+    def push(self, bytes_data: memoryview) -> "BufferView":
+        return push(buffer=self, part=bytes_data)
+
     @overload
     def __getitem__(self, index: int) -> int: ...
     @overload
@@ -86,11 +89,15 @@ class BufferView:
         return view
 
 
+def empty() -> BufferView:
+    return BufferView()
+
+
 def copy_to(buffer: BufferView, target: memoryview, offset: int = 0) -> memoryview:
     for segment in buffer.segments:
-        for i in range(len(segment)):
-            target[offset + i] = segment[i]
-        offset += len(segment)
+        segment_len = len(segment)
+        target[offset: offset + segment_len] = segment
+        offset += segment_len
 
     return target
 
@@ -124,7 +131,7 @@ def extend(buffer: BufferSlice, ext_bytes: memoryview) -> BufferView:
             )
         )
     view = BufferView._create(
-        list(buffer.segments), buffer.byte_offset, buffer.byte_length + len(ext_bytes)
+        buffer.segments, buffer.byte_offset, buffer.byte_length + len(ext_bytes)
     )
     view.segments.append(ext_bytes)
     return view
@@ -138,8 +145,8 @@ def slice_(buffer: BufferSlice, bounds: slice) -> BufferView:
     segments: list[memoryview] = []
     start_offset = bounds.start if bounds.start is not None else 0
     end_offset = bounds.stop if bounds.stop is not None else buffer.byte_length
-    start = start_offset if start_offset >= 0 else buffer.byte_length - start_offset
-    end = end_offset if end_offset >= 0 else buffer.byte_length - end_offset
+    start = start_offset if start_offset >= 0 else buffer.byte_length - abs(start_offset)
+    end = end_offset if end_offset >= 0 else buffer.byte_length - abs(end_offset)
 
     # If start at 0 offset and end is past buffer range it is effectively
     # as same buffer.
@@ -180,7 +187,7 @@ def slice_(buffer: BufferSlice, bounds: slice) -> BufferView:
                 byte_length = len(range_)
 
         # Otherwise we already started collecting matching segments and are
-        # looking for the end of the slice. If it is with in the current range
+        # looking for the end of the slice. If it is within the current range
         # capture the segment and create a view.
         elif end <= next_offset:
             range = segment if end == next_offset else segment[0 : end - offset]
@@ -196,6 +203,16 @@ def slice_(buffer: BufferSlice, bounds: slice) -> BufferView:
         offset = next_offset
 
     return BufferView._create(segments, buffer.byte_offset + start, byte_length)
+
+
+def push(buffer: BufferSlice, part: memoryview) -> BufferView:
+    if len(part) > 0:
+        # We mutate here but that is ok because it is out of bound for the
+        # passed buffer view so there will be no visible side effects.
+        buffer.segments.append(part)
+        return BufferView._create(buffer.segments, buffer.byte_offset, buffer.byte_length + len(part))
+    else:
+        return BufferView._create(buffer.segments, buffer.byte_offset, buffer.byte_length)
 
 
 def total_byte_length(segments: list[memoryview]) -> int:

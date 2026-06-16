@@ -1,13 +1,15 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, TypeVar
-from multiformats import CID as Link
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeAlias, TypeVar
+
+from multiformats import CID as Link, multicodec, multihash
+
+from ipld_unixfs import codec, unixfs
 from ipld_unixfs.file.chunker.interfaces import Chunker
 from ipld_unixfs.file.layout.interfaces import LayoutEngine, NodeID
 from ipld_unixfs.multiformats.codecs.interface import BlockEncoder
-from ipld_unixfs.multiformats.hashes.interface import MultihashDigest, MultihashHasher
 from ipld_unixfs.writer.interfaces import Writer as StreamWriter
-from ipld_unixfs import unixfs
 
 if TYPE_CHECKING:
     from ipld_unixfs.file.writer import State
@@ -19,24 +21,26 @@ T_co = TypeVar("T_co", covariant=True)
 PB: TypeAlias = Literal[0x70]
 RAW: TypeAlias = Literal[0x55]
 
-LinkCodec = TypeVar("LinkCodec", bound=int, contravariant=True)
+LinkCodec: TypeAlias = int | str | multicodec.Multicodec
 """Multicodec code that corresponds to the codec the linked data is encoded with"""
-Code = TypeVar("Code", bound=int)
-"""Code that indicates the hashing algorithm of the Multihash"""
 
-FileChunkEncoder: TypeAlias = BlockEncoder[PB, bytes] | BlockEncoder[RAW, bytes]
+FileChunkEncoder: TypeAlias = BlockEncoder[PB, memoryview] | BlockEncoder[RAW, memoryview]
 
 
-class FileEncoder(Protocol):
-    code: PB
-    def encode(self, node: unixfs.File) -> bytes: ...
+@dataclass
+class FileEncoder:
+    code = codec.code
+    def encode(self, node: unixfs.File) -> memoryview:
+        return codec.encode(node)
 
 
-class Linker(Protocol[LinkCodec, Code]):
-    def create_link(self, code: LinkCodec, hash: MultihashDigest[Code]) -> Link: ...
+class Linker:
+    def create_link(self, code: LinkCodec, hash: bytes) -> Link:
+        return Link(base="base32", version=1, codec=code, digest=hash)
 
 
-class EncoderSettings(Protocol[LayoutT, T]):
+@dataclass
+class EncoderSettings(Generic[LayoutT, T]):
     chunker: Chunker[T]
     """
     Chunker which will be used to split file content into chunks.
@@ -62,7 +66,7 @@ class EncoderSettings(Protocol[LayoutT, T]):
     file_layout: LayoutEngine[LayoutT]
     """Builder that will be used to build file DAG from the leaf nodes."""
 
-    hasher: MultihashHasher
+    hasher: multihash.Multihash
     """Hasher used to compute multihash for each block in the file."""
 
     linker: Linker
@@ -73,15 +77,24 @@ class EncoderSettings(Protocol[LayoutT, T]):
     """
 
 
-class EncodedFile(Protocol):
+@dataclass
+class EncodedFile:
     id: NodeID
     block: unixfs.Block
     link: unixfs.FileLink
 
 
-class CloseOptions(Protocol):
-    release_lock: bool | None
-    close_writer: bool | None
+@dataclass
+class Options(Generic[LayoutT, T]):
+    writer: BlockWriter
+    metadata: unixfs.Metadata
+    settings: EncoderSettings[LayoutT, T]
+
+
+@dataclass
+class CloseOptions:
+    release_lock: bool
+    close_writer: bool
 
 
 class BlockWriter(StreamWriter[unixfs.Block]):
@@ -94,7 +107,7 @@ class WriteableBlockStream(Protocol):
 
 class Writer(Protocol[T_co]):
     async def write(self, bytes_data: bytes) -> "Writer[T_co]": ...
-    async def close(self, options: CloseOptions | None) -> unixfs.FileLink: ...
+    async def close(self, options: CloseOptions) -> unixfs.FileLink: ...
 
 
 class View(Writer[T_co], Protocol[T_co, T, LayoutT]):
@@ -104,4 +117,4 @@ class View(Writer[T_co], Protocol[T_co, T, LayoutT]):
     @property
     def settings(self) -> EncoderSettings[LayoutT, T]: ...
 
-    state: State
+    state: State[LayoutT, T]

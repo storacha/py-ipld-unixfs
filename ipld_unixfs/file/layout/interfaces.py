@@ -26,6 +26,7 @@ class Leaf:
     id: NodeID
     content: Optional[Chunk]
     metadata: Optional[Metadata]
+    children: Optional[NodeID] = None
 
 
 Node: TypeAlias = Leaf | Branch
@@ -71,7 +72,7 @@ class LayoutEngine(Protocol, Generic[LayoutT]):
 
     def write(self, layout: LayoutT, chunks: Sequence[Chunk]) -> WriteResult[LayoutT]:
         """
-        Importer takes care reading file content chunking it. Afet it produces
+        Importer takes care reading file content chunking it. After it produces
         some chunks it will pass those via `write` call along with current
         layout a state (which was returned by `open` or previous `write` calls).
 
@@ -79,7 +80,7 @@ class LayoutEngine(Protocol, Generic[LayoutT]):
         along with all the leaf and branch nodes it created as a result.
 
         Note: Layout engine should not hold reference to chunks or nodes to
-        avoid unecessary memory use.
+        avoid unnecessary memory use.
         """
         ...
 

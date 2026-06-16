@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from enum import IntEnum
 from dataclasses import dataclass
 from typing import Generic, Literal, Optional, TypeVar, Union
+from typing_extensions import Buffer
 from multiformats import CID
 
 from gen.unixfs_pb2 import Data
@@ -170,7 +171,10 @@ class ContentDAGLink(DAGLink[T]):
     """Total number of bytes in the file."""
 
 
-FileLink = Union[ContentDAGLink[bytes], ContentDAGLink[Chunk], ContentDAGLink[FileShard]]
+# FileLink = Union[ContentDAGLink[bytes], ContentDAGLink[Chunk], ContentDAGLink[FileShard]]
+
+class FileLink(ContentDAGLink[bytes | Chunk | FileShard]):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,7 +330,7 @@ class MTime:
 @dataclass(frozen=True, slots=True)
 class Block:
     cid: CID
-    bytes: bytes
+    bytes: Buffer
 
 
 Directory = Union[FlatDirectory, ShardedDirectory]

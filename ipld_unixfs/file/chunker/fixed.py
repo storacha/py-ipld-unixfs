@@ -1,5 +1,5 @@
 from math import floor
-from ipld_unixfs.file.chunker.api import Chunk, StatelessChunker
+from .interfaces import Chunk, StatelessChunker
 
 DEFAULT_MAX_CHUNK_SIZE = 262144
 
@@ -27,3 +27,7 @@ class FixedSizeChunker(StatelessChunker[FixedSizeContext]):
         if end and remainder > 0:
             chunks.append(remainder)
         return chunks
+
+
+def with_max_chunk_size(max_chunk_size: int) -> FixedSizeChunker:
+    return FixedSizeChunker(max_chunk_size)

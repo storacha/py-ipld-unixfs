@@ -1,29 +1,14 @@
-from typing import Protocol, TypeAlias, TypeVar
-from ipld_unixfs.types import BytesLike
+from typing import Generic, TypeAlias, TypeVar
+from multiformats import multihash, multicodec
 
-Code = TypeVar("Code", bound=int)
+# Removed int, str to avoid layout conflict with multicodec.Multicodec
+class Code(multicodec.Multicodec):
+    """Code that indicates the hashing algorithm of the Multihash"""
+    pass
 
-class MultihashDigest(Protocol[Code]):
-    """
-    Represents a multihash digest which carries information about the
-    hashing algorithm and actual hash digest.
-    """
-    code: Code
-    """Code of the multihash."""
-    digest: BytesLike
-    """Raw binary digest without multihash info"""
-    size: int
-    """Bytes length of the `self.digest`"""
-    mh_bytes: BytesLike
-    """Binary representation of the multihash digest"""
+CodeT = TypeVar(name="CodeT", bound=Code)
 
+MultihashDigest: TypeAlias = bytes
 
-class MultihashHasher(Protocol[Code]):
-    """
-    Represents a hashing algorithm implementation that produces a
-    multihash digest.
-    """
-    name: str
-    code: Code
-
-    def digest(self, input: BytesLike) -> MultihashDigest: ...
+class Multihash(multihash.Multihash, Generic[CodeT]):
+    pass

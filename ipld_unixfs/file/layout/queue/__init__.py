@@ -8,8 +8,8 @@ from typing import (
     TypeVar,
     TypedDict,
 )
-from ipld_unixfs.file.layout.api import Branch, NodeID
-from ipld_unixfs.file.layout.queue.api import (
+from ipld_unixfs.file.layout.interfaces import Branch, NodeID
+from ipld_unixfs.file.layout.queue.interfaces import (
     Delta,
     FileLink,
     LinkedNode,
